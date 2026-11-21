@@ -2,7 +2,7 @@
 
 A daily football player puzzle — eight guesses, nine clues, one player. Independent fan project. Not affiliated with any professional football league or teams.
 
-Play: the public GitHub Pages URL is published after the first deploy from this repository.
+Play: https://vrilsolutions00.github.io/gridiron-guess/
 
 ## Features
 
@@ -24,7 +24,7 @@ Refresh a local snapshot:
 python3 scripts/refresh_roster.py
 ```
 
-A GitHub Action runs the same script around 5:00 a.m. Eastern Time and commits an updated snapshot. Existing daily answers in `www/data/puzzles.json` are never overwritten, so the archive stays stable.
+Workflow files in `.github/workflows/` are ready to refresh the roster around 5:00 a.m. Eastern Time and (optionally) deploy with Actions. The first publish uses classic GitHub Pages from the `docs/` folder because the connected GitHub token did not have the `workflow` scope needed to push Actions YAML. After you add the `workflow` scope, commit those files, switch Pages to GitHub Actions, and keep `docs/` in sync with `www/` (or retire `docs/` once the Actions deploy is live). Existing daily answers in `www/data/puzzles.json` are never overwritten, so the archive stays stable.
 
 ## App Store
 
