@@ -1,6 +1,6 @@
 {
-  "appId": "com.vril.gridironguess",
-  "appName": "Gridiron Guess",
+  "appId": "com.vril.snapcount",
+  "appName": "Snap Count",
   "webDir": "www",
   "bundledWebRuntime": false,
   "backgroundColor": "#050506",

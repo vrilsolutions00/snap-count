@@ -1,4 +1,4 @@
-/* Gridiron Guess */
+/* Snap Count */
 (() => {
   "use strict";
 
@@ -666,11 +666,11 @@
   function viewHome() {
     const date = etDate();
     const n = (PUZZLES[date] && PUZZLES[date].n) || puzzleNum(date);
-    return '<div class="screen"><div class="top"><div class="ico mark">G</div><div class="top-actions">' +
+    return '<div class="screen"><div class="top"><div class="ico mark">S</div><div class="top-actions">' +
       '<button class="ico" data-go="how" aria-label="How to play">' + icon("info") + "</button>" +
       '<button class="ico" data-go="settings" aria-label="Settings">' + icon("gear") + "</button></div></div>" +
       '<div class="kicker">Daily player puzzle</div>' +
-      '<h1 class="logo">Gridiron<br><span>Guess</span></h1>' +
+      '<h1 class="logo">Snap<br><span>Count</span></h1>' +
       '<p class="tag">Eight guesses. Nine clues. One player.</p><div class="modes">' +
       '<button class="mode primary" data-act="play-daily"><div class="mi">' + icon("cal") + "</div><div><h2>Daily</h2><p>" +
       escapeHtml(shortDate(date)) + " · Puzzle #" + n + " · Midnight ET</p></div><span class=\"chev\">›</span></button>" +
@@ -826,7 +826,7 @@
     const n = (PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date);
     const score = g.status === "won" ? (g.guesses.length + "/" + g.max) : ("X/" + g.max);
     const pack = g.pack === "live" ? (g.tier[0].toUpperCase() + g.tier.slice(1)) : (g.pack[0].toUpperCase() + g.pack.slice(1));
-    return "Gridiron Guess · " + pack + (g.hard ? " Hard" : "") + " #" + n + " " + score;
+    return "Snap Count · " + pack + (g.hard ? " Hard" : "") + " #" + n + " " + score;
   }
   function factLine(p) {
     if (p.udfa) return "“Entered the league as an undrafted free agent.”";
@@ -965,7 +965,7 @@
       "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
       '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +
       escapeHtml((DATA.asOf || "").replace("T", " ").replace("Z", " UTC")) + ".</p>" +
-      "<p>This game is an independent fan project and is not affiliated with, endorsed by, or sponsored by any professional football league, team, or players association. No official logos or player likenesses are used.</p>" +
+      "<p>Snap Count is an independent fan project and is not affiliated with, endorsed by, or sponsored by any professional football league, team, or players association. No official logos or player likenesses are used.</p>" +
       '<p><a href="./privacy-policy.html">Privacy policy</a></p></div>';
   }
 
@@ -982,7 +982,7 @@
       row("sound", "Sound", "Short beeps on tile flips and results.") +
       row("haptics", "Haptics", "A light vibrate when tiles flip, if your phone allows it.") +
       row("colorblind", "Colorblind mode", "Blue for exact, orange for close, plus a ✓ ≈ – mark on every tile.") +
-      '<p class="legal" style="text-align:left;margin-top:24px">Gridiron Guess is a free fan project. Data as of ' +
+      '<p class="legal" style="text-align:left;margin-top:24px">Snap Count is a free fan project. Data as of ' +
       escapeHtml(DATA.asOf) + '. <a href="./privacy-policy.html">Privacy policy</a></p></div>';
   }
   function bind() {
@@ -1180,7 +1180,7 @@
     c.fillStyle = "#C8FF00";
     c.font = "700 28px sans-serif";
     c.textAlign = "center";
-    c.fillText("GRIDIRON GUESS", 540, 160);
+    c.fillText("SNAP COUNT", 540, 160);
     c.fillStyle = "#fff";
     c.font = "700 48px sans-serif";
     c.fillText(shareHeadline(g), 540, 240);
@@ -1215,17 +1215,17 @@
     c.font = "500 22px sans-serif";
     c.fillText("Not affiliated with any professional league or teams", 540, 1280);
     const blob = await new Promise(function (res) { canvas.toBlob(res, "image/png"); });
-    const file = new File([blob], "gridiron-guess.png", { type: "image/png" });
+    const file = new File([blob], "snap-count.png", { type: "image/png" });
     try {
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: "Gridiron Guess" });
+        await navigator.share({ files: [file], title: "Snap Count" });
         return;
       }
     } catch (e) {}
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "gridiron-guess.png";
+    a.download = "snap-count.png";
     a.click();
     URL.revokeObjectURL(url);
     toast("Image saved");

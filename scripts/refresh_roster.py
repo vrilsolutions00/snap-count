@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and refresh Gridiron Guess player data from nflverse (CC BY 4.0) + Sleeper."""
+"""Build and refresh Snap Count player data from nflverse (CC BY 4.0) + Sleeper."""
 from __future__ import annotations
 
 import csv
@@ -175,7 +175,7 @@ LIVE_NICKNAMES = {
 
 
 def download(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "GridironGuess/1.0 (fan project; +https://github.com/vrilsolutions00/gridiron-guess)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "SnapCount/1.0 (fan project; +https://github.com/vrilsolutions00/snap-count)"})
     with urllib.request.urlopen(req, timeout=120) as res:
         return res.read()
 

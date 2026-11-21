@@ -1,14 +1,16 @@
-# Gridiron Guess
+# Snap Count
 
 A daily football player puzzle — eight guesses, nine clues, one player. Independent fan project. Not affiliated with any professional football league or teams.
 
-Play: https://vrilsolutions00.github.io/gridiron-guess/
+Play: https://vrilsolutions00.github.io/snap-count/
+
+The GitHub repository is [vrilsolutions00/snap-count](https://github.com/vrilsolutions00/snap-count). The previous name, Gridiron Guess, redirects there.
 
 ## Features
 
 - Daily puzzle seeded at midnight Eastern Time (same answer for everyone)
 - Clues: Team, Division, Position, Height, Age, Number, Weight, Years, Draft year (UDFA-aware), with up/down arrows
-- Difficulty tiers: Stars (default), Starters, Full
+- Difficulty tiers: Starters (default), Stars, Full
 - Hard mode (no Team column), Unlimited, 60-second Speed Round, Pass & Play
 - Rookies and Legends packs
 - Hints, remaining-candidates list, spoiler-free share grid and share image
@@ -23,6 +25,8 @@ Refresh a local snapshot:
 ```bash
 python3 scripts/refresh_roster.py
 ```
+
+The refresh script lives at `scripts/refresh_roster.py` and writes `www/data/players.json` and `www/data/puzzles.json` relative to the project root (no hardcoded machine path). After editing `www/`, copy it to `docs/` so classic GitHub Pages stays in sync.
 
 Workflow files in `.github/workflows/` are ready to refresh the roster around 5:00 a.m. Eastern Time and (optionally) deploy with Actions. The first publish uses classic GitHub Pages from the `docs/` folder because the connected GitHub token did not have the `workflow` scope needed to push Actions YAML. After you add the `workflow` scope, commit those files, switch Pages to GitHub Actions, and keep `docs/` in sync with `www/` (or retire `docs/` once the Actions deploy is live). Existing daily answers in `www/data/puzzles.json` are never overwritten, so the archive stays stable.
 

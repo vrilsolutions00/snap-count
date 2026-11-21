@@ -1,6 +1,6 @@
 {
-  "name": "Gridiron Guess",
-  "short_name": "Gridiron Guess",
+  "name": "Snap Count",
+  "short_name": "Snap Count",
   "description": "A daily football player puzzle. Eight guesses. Nine clues. One player.",
   "start_url": "./",
   "scope": "./",
