@@ -1,9 +1,10 @@
-const CACHE = "sc-v5";
+const CACHE = "sc-v6";
 const SHELL = [
   "./",
   "./index.html",
   "./css/styles.css",
   "./js/app.js",
+  "./js/lb.js",
   "./manifest.webmanifest",
   "./privacy-policy.html",
   "./icons/icon-192.png",

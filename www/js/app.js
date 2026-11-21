@@ -38,6 +38,15 @@
     speed: null,
     pass: null,
     archiveMonth: null,
+    lbTab: "daily",
+    lbRows: null,
+    lbMeta: null,
+    lbLoading: false,
+    lbError: null,
+    lbGroup: null,
+    postError: null,
+    postBusy: false,
+    groupError: null,
     sessionAnswers: []
   };
 
@@ -505,6 +514,9 @@
     const g = state.game;
     if (!g || g.status !== "playing") return;
     if (g.guesses.indexOf(player.id) !== -1) { toast("Already guessed"); return; }
+    if (g.guesses.length === 0 && window.SnapLB && SnapLB.officialDaily(g)) {
+      SnapLB.startSession(g);
+    }
     const answer = playersById.get(g.answerId);
     const tiles = gradeGuess(player, answer, g.date, g.hard);
     g.guesses.push(player.id);
@@ -550,6 +562,9 @@
 
   function finishGame(won) {
     const g = state.game;
+    if (window.SnapLB && SnapLB.officialDaily(g)) {
+      SnapLB.recordFirstResult(g);
+    }
     if (g.mode === "daily" && !g.archive) {
       const s = recordDaily(g.tier, g.date, won, g.guesses.length);
       if (won) {
@@ -650,11 +665,15 @@
     else if (state.view === "game") html = viewGame();
     else if (state.view === "stats") html = viewStats();
     else if (state.view === "archive") html = viewArchive();
+    else if (state.view === "leaderboard") html = viewLeaderboard();
+    else if (state.view === "groups") html = viewGroups();
     else if (state.view === "how") html = viewHow();
     else if (state.view === "settings") html = viewSettings();
     else html = viewHome();
     if (state.overlay === "hints") html += sheetHints();
     if (state.overlay === "remain") html += sheetRemain();
+    if (state.overlay === "post-score") html += modalPostScore();
+    if (state.overlay === "already-played") html += modalAlreadyPlayed();
     if (state.overlay === "result") html += modalResult();
     if (state.overlay === "pass-ready") html += modalPassReady();
     if (state.overlay === "speed-end") html += modalSpeedEnd();
@@ -687,6 +706,7 @@
       '<div class="hard-row"><span>Hard mode — hide the Team column</span>' +
       '<button class="toggle ' + (state.hardMode?"on":"") + '" data-act="toggle-hard" aria-pressed="' + state.hardMode + '"><i></i></button></div>' +
       '<div class="home-foot"><button class="chip" data-go="stats">' + icon("home") + " Stats</button>" +
+      '<button class="chip" data-act="open-board">Leaderboard</button>' +
       '<button class="chip" data-go="archive">Archive</button>' +
       '<button class="chip ghost" data-go="how">How to play</button></div>' +
       '<p class="legal">Not affiliated with any professional football league or teams.<br>Player data via nflverse, CC BY 4.0.</p></div>';
@@ -771,14 +791,17 @@
   }
 
   function tileHtml(t, idx) {
-    const glyph = t.grade === "exact" ? "✓" : t.grade === "close" ? "≈" : "–";
+    const glyph = t.grade === "exact" ? "✓" : t.grade === "close" ? "~" : "–";
+    const label = t.grade === "exact" ? "Exact match" : t.grade === "close" ? "Close" : "Miss";
     const delay = ' style="animation-delay:' + (idx * 70) + 'ms"';
     const arrow = t.arrow === "up" ? "▲" : t.arrow === "down" ? "▼" : "";
     let inner;
     if (t.col === "team") inner = badge(t.team, true);
     else if (t.col === "div") inner = escapeHtml(t.text) + '<span class="div-sub">' + escapeHtml(t.sub) + "</span>";
     else inner = escapeHtml(t.text);
-    return '<div class="tile filled ' + t.grade + '"' + delay + ">" + (arrow ? '<span class="arrow">' + arrow + "</span>" : "") + inner + '<span class="glyph">' + glyph + "</span></div>";
+    return '<div class="tile filled ' + t.grade + '" aria-label="' + label + '"' + delay + ">" +
+      (arrow ? '<span class="arrow" aria-hidden="true">' + arrow + "</span>" : "") +
+      inner + '<span class="cue" aria-hidden="true">' + glyph + "</span></div>";
   }
 
   function fmtTime(s) {
@@ -843,7 +866,11 @@
     let extra = "";
     if (g.mode === "daily" && !g.archive) {
       extra += '<p class="streak-line">Streak <b>' + s.streak + "</b> · Best " + s.maxStreak + " · Next puzzle at midnight ET</p>";
-      extra += '<div class="actions"><button class="btn ghost" data-go="home">Home</button></div>';
+      var lock = window.SnapLB ? SnapLB.getLockSync(g.date, g.tier, g.hard) : null;
+      var postBtn = (lock && lock.posted)
+        ? '<button class="btn gold" data-act="open-board">See leaderboard</button>'
+        : '<button class="btn gold" data-act="open-post">Post your score</button>';
+      extra += '<div class="actions">' + postBtn + '<button class="btn ghost" data-go="home">Home</button></div>';
     }
     if (g.mode === "unlimited" || g.mode === "speed") {
       extra += '<div class="actions"><button class="btn ghost" data-act="again">Play again</button><button class="btn ghost" data-go="home">Home</button></div>';
@@ -950,6 +977,159 @@
       '<div class="cal-grid">' + ["S","M","T","W","T","F","S"].map(function (d) { return '<div class="dow">' + d + "</div>"; }).join("") + cells + "</div></div>";
   }
 
+
+  function lbDateLabel(iso) {
+    return shortDate(iso || etDate());
+  }
+  function viewLeaderboard() {
+    const tab = state.lbTab || "daily";
+    const date = etDate();
+    const n = (PUZZLES[date] && PUZZLES[date].n) || puzzleNum(date);
+    const group = state.lbGroup;
+    const sub = group
+      ? ("Group board · " + group.name)
+      : (lbDateLabel(date) + " · Starters #" + n + " · fewest guesses, then fastest time");
+    const tabs = [["daily", "Daily"], ["weekly", "Weekly"], ["streak", "Best Streak"]].map(function (pair) {
+      return '<button class="tab' + (tab === pair[0] ? " on" : "") + '" data-act="lb-tab" data-tab="' + pair[0] + '">' + pair[1] + "</button>";
+    }).join("");
+    let heads;
+    if (tab === "weekly") heads = ["#", "Player", "Days", "Guess"];
+    else if (tab === "streak") heads = ["#", "Player", "Best", "Now"];
+    else heads = ["#", "Player", "Guess", "Time"];
+    let body = "";
+    if (state.lbLoading) body = '<p class="lb-empty">Loading the board…</p>';
+    else if (state.lbError) body = '<p class="lb-empty">' + escapeHtml(SnapLB.errorText(state.lbError)) + "</p>";
+    else if (!state.lbRows || !state.lbRows.length) body = '<p class="lb-empty">No scores on this board yet. Be the first to post.</p>';
+    else {
+      body = '<div class="lb-head">' + heads.map(function (h) { return "<span>" + h + "</span>"; }).join("") + "</div>";
+      body += state.lbRows.map(function (row) {
+        var c3, c4;
+        if (tab === "weekly") { c3 = String(row.days_played); c4 = String(row.guesses); }
+        else if (tab === "streak") { c3 = String(row.best_streak); c4 = String(row.current_streak); }
+        else { c3 = String(row.guesses); c4 = SnapLB.fmtMs(row.solve_ms); }
+        return '<div class="lb-row' + (row.is_me ? " me" : "") + '"><div class="lb-rank">' + row.rank +
+          '</div><div class="lb-who">' + escapeHtml(row.nickname) + (row.is_me ? "<small>You</small>" : "") +
+          '</div><div class="lb-g">' + escapeHtml(c3) + '</div><div class="lb-t">' + escapeHtml(c4) + "</div></div>";
+      }).join("");
+    }
+    return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">Leaderboard</div><button class="ico" data-act="open-groups" aria-label="Friend groups">' +
+      icon("people") + "</button></div>" +
+      '<div class="page-title"><h1>Leaderboard</h1><p class="lb-subline">' + escapeHtml(sub) + "</p></div>" +
+      '<div class="lb-tabs">' + tabs + "</div>" + body +
+      (group ? '<div class="actions" style="margin-top:12px"><button class="btn ghost" data-act="clear-group">All players</button></div>' : "") +
+      "</div>";
+  }
+  function viewGroups() {
+    const groups = (state.lbMeta && state.lbMeta.groups) || [];
+    const err = state.groupError ? '<p class="lb-err">' + escapeHtml(SnapLB.errorText(state.groupError)) + "</p>" : "";
+    const list = groups.length
+      ? groups.map(function (g) {
+          return '<button class="lb-row" data-act="pick-group" data-code="' + escapeHtml(g.join_code) + '" data-name="' + escapeHtml(g.name) +
+            '"><div class="lb-rank">#</div><div class="lb-who">' + escapeHtml(g.name) + "<small>" + escapeHtml(g.join_code) +
+            (g.mine ? " · yours" : "") + '</small></div><div class="lb-g"></div><div class="lb-t">Open</div></button>';
+        }).join("")
+      : '<p class="lb-empty">You haven’t joined a huddle yet.</p>';
+    return '<div class="screen"><div class="top"><button class="ico" data-act="open-board" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">Friend Groups</div><div style="width:40px"></div></div>' +
+      '<div class="page-title"><h1>Friend Groups</h1><p class="lb-subline">Your huddle</p></div>' + err +
+      '<div class="lb-block"><h3>Create a group</h3><p class="lb-note">Pick a group name. We’ll give you a join code to share.</p>' +
+      '<div class="lb-label">Group name</div><input class="lb-field" id="group-name" maxlength="24" placeholder="The Huddle"/>' +
+      '<div class="actions"><button class="btn gold" data-act="create-group">Create group</button></div></div>' +
+      '<div class="lb-block"><h3>Join with a code</h3><p class="lb-note">Enter the 6-character code a friend sent you.</p>' +
+      '<input class="lb-field center" id="group-code" maxlength="6" placeholder="XXXXXX" autocomplete="off"/>' +
+      '<div class="actions"><button class="btn gold" data-act="join-group">Join</button></div></div>' +
+      '<h3 class="lb-label" style="margin:8px 4px">Your groups</h3>' + list + "</div>";
+  }
+  function modalPostScore() {
+    const g = state.game;
+    if (!g) return "";
+    const lock = window.SnapLB ? SnapLB.getLockSync(g.date, g.tier, g.hard) : null;
+    const guesses = lock ? lock.guesses : g.guesses.length;
+    const ms = (lock && (lock.solveMs || lock.solveMsEst)) || (g.lbSession && g.lbSession.started_at ? (Date.now() - Date.parse(g.lbSession.started_at)) : null);
+    const nick = (lock && lock.nickname) || (window.SnapLB && SnapLB.savedNickname()) || "";
+    const n = (PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date);
+    const err = state.postError ? '<p class="lb-err">' + escapeHtml(SnapLB.errorText(state.postError)) + "</p>" : "";
+    const busy = state.postBusy ? " disabled" : "";
+    return '<div class="overlay" data-act="close-overlay"><div class="sheet lb-sheet" data-stop><div class="handle"></div>' +
+      "<h3>Post your score</h3>" +
+      '<div class="stat-row"><div class="stat-pill"><b>' + guesses + "</b><span>Guesses</span></div>" +
+      '<div class="stat-pill"><b>' + (window.SnapLB ? SnapLB.fmtMs(ms) : "—") + "</b><span>Solve time</span></div>" +
+      '<div class="stat-pill"><b>#' + n + "</b><span>" + escapeHtml((g.tier[0].toUpperCase() + g.tier.slice(1)) + (g.hard ? " hard" : " daily")) + "</span></div></div>" +
+      '<div class="lb-label">Nickname</div>' +
+      '<input class="lb-field" id="lb-nick" maxlength="16" placeholder="GridKid" value="' + escapeHtml(nick) + '" autocomplete="nickname"/>' +
+      '<p class="lb-note">Nicknames only, 2–16 characters. <b>Names are filtered for kid-safe language</b> before they go up on the board. No real names or emails.</p>' +
+      err +
+      '<div class="actions"><button class="btn gold"' + busy + ' data-act="post-score">Post score</button>' +
+      '<button class="btn ghost" data-act="skip-post">Not now</button></div></div></div>';
+  }
+  function modalAlreadyPlayed() {
+    const g = state.game;
+    const lock = (g && window.SnapLB) ? SnapLB.getLockSync(g.date, g.tier, g.hard) : null;
+    const guesses = lock ? lock.guesses : (g ? g.guesses.length : "—");
+    const ms = lock && (lock.solveMs || lock.solveMsEst);
+    const nick = (lock && lock.nickname) || (window.SnapLB && SnapLB.savedNickname()) || "—";
+    const time = window.SnapLB ? SnapLB.fmtMs(ms) : "—";
+    return '<div class="overlay" data-act="close-overlay"><div class="sheet lb-sheet" data-stop><div class="handle"></div>' +
+      "<h3>Already played today</h3>" +
+      '<p class="lead">Your first result is locked in. That’s the only score that can go on the board until the next puzzle at midnight ET.</p>' +
+      '<div class="lock-banner"><div><b>First result only.</b> Later retries on this device can’t replace it — ' +
+      guesses + " guess" + (guesses === 1 ? "" : "es") + (ms ? (" in " + time) : "") + " stands.</div></div>" +
+      '<div class="stat-row"><div class="stat-pill"><b>' + guesses + "</b><span>Guesses</span></div>" +
+      '<div class="stat-pill"><b>' + time + "</b><span>Solve time</span></div>" +
+      '<div class="stat-pill"><b>' + escapeHtml(String(nick)) + "</b><span>Nickname</span></div></div>" +
+      '<div class="actions"><button class="btn gold" data-act="open-board">See leaderboard</button>' +
+      '<button class="btn ghost" disabled>Post new score</button></div></div></div>';
+  }
+  function openLeaderboard() {
+    state.view = "leaderboard";
+    state.overlay = null;
+    state.lbError = null;
+    loadLeaderboard();
+  }
+  function loadLeaderboard() {
+    if (!window.SnapLB) {
+      state.lbLoading = false;
+      state.lbError = "offline";
+      state.lbRows = [];
+      render();
+      return;
+    }
+    state.lbLoading = true;
+    state.lbError = null;
+    render();
+    const date = etDate();
+    const tier = "starters";
+    const code = state.lbGroup && state.lbGroup.join_code;
+    const tab = state.lbTab || "daily";
+    const req = tab === "weekly" ? SnapLB.getWeeklyBoard(date, tier, code)
+      : tab === "streak" ? SnapLB.getStreakBoard(tier, code)
+      : SnapLB.getDailyBoard(date, tier, code);
+    req.then(function (res) {
+      state.lbLoading = false;
+      if (!res || !res.ok) {
+        state.lbError = (res && res.error) || "offline";
+        state.lbRows = [];
+      } else {
+        state.lbRows = res.rows || [];
+        state.lbMeta = Object.assign({}, state.lbMeta, res);
+      }
+      render();
+    });
+  }
+  function loadGroups() {
+    state.view = "groups";
+    state.overlay = null;
+    state.groupError = null;
+    render();
+    if (!window.SnapLB) return;
+    SnapLB.listGroups().then(function (res) {
+      if (res && res.ok) state.lbMeta = Object.assign({}, state.lbMeta, { groups: res.groups || [] });
+      else state.groupError = (res && res.error) || "offline";
+      render();
+    });
+  }
+
   function viewHow() {
     return '<div class="screen how"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
       '</button><div class="top-title">How to play</div><div style="width:40px"></div></div>' +
@@ -957,6 +1137,7 @@
       "<h3>Colors</h3><ul><li><span class=\"swatch\" style=\"background:var(--exact)\"></span> Green — exact match</li>" +
       '<li><span class="swatch" style="background:var(--close)"></span> Gold — close (same conference; same unit for position; height / age / years / draft year within 2; jersey number within 5; weight within 10 lb)</li>' +
       '<li><span class="swatch" style="background:var(--miss)"></span> Gray — not close</li></ul>' +
+      "<p>Every graded tile also has a small badge: ✓ exact, ~ close, – miss.</p>" +
       "<h3>Position</h3><p>Green is the exact position. Gold means a different position on the same unit: offense (QB, RB, WR, TE, OL), defense (DL, LB, DB), or special teams (K, P, LS). Gray means a different unit.</p>" +
       "<h3>Arrows</h3><p>On number clues, ▲ means the answer is higher and ▼ means the answer is lower.</p>" +
       "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
@@ -1152,6 +1333,86 @@
       state.settings[key] = !state.settings[key];
       saveJSON("gg:settings", state.settings);
       render();
+    } else if (act === "open-board") {
+      openLeaderboard();
+    } else if (act === "lb-tab") {
+      state.lbTab = btn.getAttribute("data-tab") || "daily";
+      loadLeaderboard();
+    } else if (act === "open-post") {
+      const g = state.game;
+      const lock = (g && window.SnapLB) ? SnapLB.getLockSync(g.date, g.tier, g.hard) : null;
+      state.postError = null;
+      state.postBusy = false;
+      state.overlay = (lock && lock.posted) ? "already-played" : "post-score";
+      render();
+    } else if (act === "skip-post") {
+      state.overlay = null;
+      render();
+    } else if (act === "post-score") {
+      const g = state.game;
+      if (!g || !window.SnapLB) return;
+      const input = document.getElementById("lb-nick");
+      const nick = input ? input.value : "";
+      state.postBusy = true;
+      state.postError = null;
+      render();
+      // re-fill the field after render
+      SnapLB.submitScore(g, nick).then(function (res) {
+        state.postBusy = false;
+        if (res && res.ok) {
+          state.overlay = null;
+          openLeaderboard();
+        } else {
+          state.postError = (res && res.error) || "offline";
+          render();
+          const field = document.getElementById("lb-nick");
+          if (field) field.value = nick;
+        }
+      });
+    } else if (act === "open-groups") {
+      loadGroups();
+    } else if (act === "create-group") {
+      const input = document.getElementById("group-name");
+      const name = input ? input.value : "";
+      if (!window.SnapLB) return;
+      SnapLB.createGroup(name).then(function (res) {
+        if (res && res.ok) {
+          state.lbGroup = { name: res.name, join_code: res.join_code };
+          SnapLB.setSavedGroup(state.lbGroup);
+          state.groupError = null;
+          openLeaderboard();
+        } else {
+          state.groupError = (res && res.error) || "offline";
+          render();
+          const field = document.getElementById("group-name");
+          if (field) field.value = name;
+        }
+      });
+    } else if (act === "join-group") {
+      const input = document.getElementById("group-code");
+      const code = input ? input.value : "";
+      if (!window.SnapLB) return;
+      SnapLB.joinGroup(code).then(function (res) {
+        if (res && res.ok) {
+          state.lbGroup = { name: res.name, join_code: res.join_code };
+          SnapLB.setSavedGroup(state.lbGroup);
+          state.groupError = null;
+          openLeaderboard();
+        } else {
+          state.groupError = (res && res.error) || "offline";
+          render();
+          const field = document.getElementById("group-code");
+          if (field) field.value = code;
+        }
+      });
+    } else if (act === "pick-group") {
+      state.lbGroup = { name: btn.getAttribute("data-name"), join_code: btn.getAttribute("data-code") };
+      if (window.SnapLB) SnapLB.setSavedGroup(state.lbGroup);
+      openLeaderboard();
+    } else if (act === "clear-group") {
+      state.lbGroup = null;
+      if (window.SnapLB) SnapLB.setSavedGroup(null);
+      openLeaderboard();
     }
   }
 
@@ -1294,6 +1555,7 @@
       DATA = pack[0];
       PUZZLES = pack[1];
       playersById = new Map(DATA.players.map(function (p) { return [p.id, p]; }));
+      if (window.SnapLB) state.lbGroup = SnapLB.savedGroup();
       render();
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("./sw.js").catch(function () {});

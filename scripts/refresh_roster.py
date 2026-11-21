@@ -16,7 +16,7 @@ from pathlib import Path
 
 SEASON = 2026
 LAUNCH = dt.date(2026, 11, 20)
-HORIZON_DAYS = 120
+HORIZON_DAYS = 365
 
 NFLVERSE_PLAYERS = "https://github.com/nflverse/nflverse-data/releases/download/players/players.csv"
 NFLVERSE_ROSTER = "https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_{season}.csv"
@@ -620,7 +620,56 @@ def build(cache_dir: Path | None = None) -> dict:
         "puzzlesFilled": filled, "puzzlesRewrittenFuture": rewritten,
         "droppedSample": dropped[:8],
     }, indent=2))
+    synced = sync_daily_answers(puzzles)
+    if synced is not None:
+        print(json.dumps({"dailyAnswersSynced": synced}, indent=2))
     return payload
+
+
+def sync_daily_answers(puzzles: dict) -> dict | None:
+    """Upsert future+current daily answer hashes to Supabase.
+
+    Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment.
+    The service role key must never be committed. Without the env vars this
+    is a no-op so a local or Actions roster refresh still succeeds.
+    Hashes are computed server-side from the answer id; raw ids are sent
+    only over HTTPS to the admin RPC and are not stored in a public table.
+    """
+    url = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
+    if not url or not key:
+        print(
+            "Note: daily_answers were not synced. Set SUPABASE_URL and "
+            "SUPABASE_SERVICE_ROLE_KEY to keep the leaderboard answer table "
+            "in sync (seed is already loaded through the current puzzle horizon)."
+        )
+        return None
+    endpoint = url + "/rest/v1/rpc/admin_upsert_daily_answer"
+    headers = {
+        "apikey": key,
+        "Authorization": "Bearer " + key,
+        "Content-Type": "application/json",
+    }
+    ok = 0
+    failed = 0
+    for day, entry in puzzles.items():
+        if not isinstance(entry, dict):
+            continue
+        for tier in ("stars", "starters", "full", "hard", "rookies", "legends"):
+            aid = entry.get(tier)
+            if not aid:
+                continue
+            body = json.dumps({"p_date": day, "p_tier": tier, "p_answer_id": aid}).encode()
+            req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    resp.read()
+                ok += 1
+            except Exception as exc:
+                failed += 1
+                if failed <= 5:
+                    print("daily_answers sync error", day, tier, exc)
+    return {"ok": ok, "failed": failed}
 
 
 if __name__ == "__main__":
