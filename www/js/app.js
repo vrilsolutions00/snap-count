@@ -25,7 +25,7 @@
   let playersById = new Map();
   const state = {
     view: "home",
-    tier: loadJSON("gg:tier", "stars"),
+    tier: loadJSON("gg:tier", "starters"),
     hardMode: loadJSON("gg:hard", false),
     settings: loadJSON("gg:settings", { sound: true, haptics: true, colorblind: false }),
     game: null,
@@ -37,7 +37,8 @@
     packPick: null,
     speed: null,
     pass: null,
-    archiveMonth: null
+    archiveMonth: null,
+    sessionAnswers: []
   };
 
   function loadJSON(key, fallback) {
@@ -338,20 +339,112 @@
     return "gg:daily:" + date + ":" + tier + ":" + (hard ? "hard" : "classic") + ":" + (pack || "live");
   }
 
-  function pickAnswer(mode, pack, tier, date, hard) {
-    if (mode === "daily" || mode === "hard") {
-      const row = PUZZLES[date];
-      let key = pack === "legends" ? "legends" : pack === "rookies" ? "rookies" : (hard || mode === "hard") ? "hard" : tier;
-      const id = row && row[key];
-      const p = id && playersById.get(id);
-      if (p) return p;
+  var NO_REPEAT_DAYS = 60;
+
+  function fnv1a(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
     }
-    const pool = poolFor(pack, hard ? "stars" : tier);
+    return h >>> 0;
+  }
+
+  function puzzleKey(pack, tier, hard) {
+    if (pack === "legends") return "legends";
+    if (pack === "rookies") return "rookies";
+    if (hard) return "hard";
+    return tier;
+  }
+
+  function pickUniformSeeded(ids, date, key) {
+    var ordered = ids.slice().sort();
+    var excluded = [];
+    for (var back = 1; back <= NO_REPEAT_DAYS; back++) {
+      var prev = addDays(date, -back);
+      if (PUZZLES[prev] && PUZZLES[prev][key]) excluded.push(PUZZLES[prev][key]);
+    }
+    var excl = {};
+    excluded.forEach(function (id) { excl[id] = true; });
+    var candidates = ordered.filter(function (id) { return !excl[id]; });
+    if (!candidates.length && ordered.length > 1) {
+      excl = {};
+      excluded.slice(0, ordered.length - 1).forEach(function (id) { excl[id] = true; });
+      candidates = ordered.filter(function (id) { return !excl[id]; });
+    }
+    if (!candidates.length) candidates = ordered;
+    var seed = "gridiron-guess|" + date + "|" + key;
+    return candidates[fnv1a(seed) % candidates.length];
+  }
+
+  function cryptoIndex(n) {
+    if (n <= 1) return 0;
+    var buf = new Uint32Array(1);
+    var max = Math.floor(4294967296 / n) * n;
+    var x;
+    do {
+      crypto.getRandomValues(buf);
+      x = buf[0];
+    } while (x >= max);
+    return x % n;
+  }
+
+  function recentSlot(pack, tier, hard) {
+    return pack + ":" + (pack === "live" ? tier : pack) + ":" + (hard ? "hard" : "classic");
+  }
+
+  function recentIds(pack, tier, hard) {
+    var cutoff = addDays(etDate(), -NO_REPEAT_DAYS);
+    var slot = recentSlot(pack, tier, hard);
+    var set = new Set(state.sessionAnswers || []);
+    (loadJSON("gg:recent-answers", [])).forEach(function (r) {
+      if (r.date >= cutoff && r.slot === slot) set.add(r.id);
+    });
+    return set;
+  }
+
+  function rememberAnswer(id, pack, tier, hard) {
+    var cutoff = addDays(etDate(), -NO_REPEAT_DAYS);
+    var rec = (loadJSON("gg:recent-answers", [])).filter(function (r) { return r.date >= cutoff; });
+    rec.push({ id: id, date: etDate(), slot: recentSlot(pack, tier, hard) });
+    saveJSON("gg:recent-answers", rec);
+  }
+
+  function answerPool(pack, tier, hard, isDailyHard) {
+    // Daily Hard answers come from the Starters pool (and Stars, so archived
+    // hard puzzles from the earlier Stars pool still appear in "remaining").
+    if (isDailyHard && pack === "live") {
+      var seen = {};
+      return poolFor(pack, "starters").concat(poolFor(pack, "stars")).filter(function (p) {
+        if (seen[p.id]) return false;
+        seen[p.id] = true;
+        return true;
+      });
+    }
+    return poolFor(pack, tier);
+  }
+
+  function pickAnswer(mode, pack, tier, date, hard) {
+    var isDaily = (mode === "daily");
+    var key = puzzleKey(pack, tier, hard);
+    if (isDaily) {
+      var row = PUZZLES[date];
+      var id = row && row[key];
+      var p = id && playersById.get(id);
+      if (p) return p;
+      var fallbackPool = answerPool(pack, key === "hard" ? "starters" : tier, hard, key === "hard");
+      if (key === "hard") fallbackPool = poolFor(pack, "starters");
+      if (key === "rookies") fallbackPool = poolFor("rookies", tier);
+      if (key === "legends") fallbackPool = poolFor("legends", tier);
+      var picked = pickUniformSeeded(fallbackPool.map(function (x) { return x.id; }), date, key);
+      return playersById.get(picked) || null;
+    }
+    var pool = poolFor(pack, tier);
     if (!pool.length) return null;
-    const seed = String(Date.now()) + Math.random();
-    let h = 2166136261;
-    for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
-    return pool[(h >>> 0) % pool.length];
+    var avoid = recentIds(pack, tier, hard);
+    var candidates = pool.filter(function (x) { return !avoid.has(x.id); });
+    if (!candidates.length) candidates = pool;
+    return candidates[cryptoIndex(candidates.length)];
   }
 
   function newGame(opts) {
@@ -362,13 +455,17 @@
     const hard = !!(opts.hard || mode === "hard");
     const max = MAX[mode] || 8;
     const answer = opts.answer || pickAnswer(mode, pack, tier, date, hard);
+    if (answer) {
+      state.sessionAnswers = (state.sessionAnswers || []).concat([answer.id]);
+      if (mode !== "daily") rememberAnswer(answer.id, pack, tier, hard);
+    }
     return {
       mode: mode, pack: pack, tier: tier, hard: hard, date: date,
       answerId: answer.id,
       max: max,
       guesses: [],
       grades: [],
-      remaining: poolFor(pack, hard ? "stars" : tier).map(function (p) { return p.id; }),
+      remaining: answerPool(pack, tier, hard, !!(hard && mode === "daily")).map(function (p) { return p.id; }),
       hints: { college: false, draft: false, colors: false },
       hintCosts: 0,
       status: "playing",
@@ -835,7 +932,7 @@
       '<li><span class="swatch" style="background:var(--miss)"></span> Gray — not close</li></ul>' +
       "<h3>Arrows</h3><p>On number clues, ▲ means the answer is higher and ▼ means the answer is lower.</p>" +
       "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
-      "<h3>Difficulty</h3><p>Stars is the default casual pool. Starters includes depth-chart ones. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
+      "<h3>Difficulty</h3><p>Starters is the default pool: every current depth-chart starter, chosen uniformly at random. Stars is a smaller, more familiar list. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
       "<h3>Packs</h3><p>Rookies uses this season’s first-year players. Legends is a curated set of retired stars, graded on peak team, number, and size. Retired players never appear in the live daily.</p>" +
       "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
       '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +

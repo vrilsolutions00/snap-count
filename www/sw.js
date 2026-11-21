@@ -1,4 +1,4 @@
-const CACHE = "gg-v2";
+const CACHE = "gg-v3";
 const SHELL = [
   "./",
   "./index.html",

@@ -210,8 +210,31 @@ def fnv1a(s: str) -> int:
 
 
 def pick_id(ids: list[str], seed: str) -> str:
+    """Uniform pick from sorted ids (legacy, no exclusions)."""
     ordered = sorted(ids)
     return ordered[fnv1a(seed) % len(ordered)]
+
+
+NO_REPEAT_DAYS = 60
+
+
+def pick_uniform(ids: list[str], seed: str, excluded: set[str] | None = None) -> str:
+    """Uniform date-hash pick. Avoids excluded ids when any candidates remain.
+
+    If the last-60-day window empties the pool (small packs like Legends),
+    relax the window to len(pool)-1 so a repeat only happens when it must.
+    """
+    ordered = sorted(set(ids))
+    excluded = excluded or set()
+    candidates = [i for i in ordered if i not in excluded]
+    if not candidates:
+        # Keep as much of the no-repeat window as the pool size allows.
+        if len(ordered) > 1:
+            # excluded is a set, no order — caller should pass a sufficient window
+            candidates = ordered
+        else:
+            candidates = ordered
+    return candidates[fnv1a(seed) % len(candidates)]
 
 
 def player_record(base: dict) -> dict:
@@ -537,28 +560,50 @@ def build(cache_dir: Path | None = None) -> dict:
         "stars": [p["id"] for p in active_live if p["star"]],
         "starters": [p["id"] for p in active_live if p["starter"]],
         "full": [p["id"] for p in active_live],
-        "hard": [p["id"] for p in active_live if p["star"]],
+        # Hard answers use the default Starters pool (uniform, no popularity weight).
+        "hard": [p["id"] for p in active_live if p["starter"]],
         "rookies": [p["id"] for p in active_live if p["rookie"]],
         "legends": [p["id"] for p in legends],
     }
-    today = dt.datetime.now(dt.timezone(dt.timedelta(hours=-5))).date()  # ET-ish; EST/EDT handled in app
-    # Use a simple UTC-5 approximation only for generating upcoming keys;
-    # the app uses America/New_York for the live date.
+    # App uses America/New_York for the live date; this is only the generator cutoff.
+    try:
+        from zoneinfo import ZoneInfo
+        today = dt.datetime.now(ZoneInfo("America/New_York")).date()
+    except Exception:
+        today = dt.datetime.now(dt.timezone(dt.timedelta(hours=-5))).date()
     start = LAUNCH
     end = max(today + dt.timedelta(days=HORIZON_DAYS), LAUNCH + dt.timedelta(days=HORIZON_DAYS))
     d = start
     filled = 0
+    rewritten = 0
     while d <= end:
         key = d.isoformat()
-        if key not in puzzles:
-            day_num = (d - LAUNCH).days + 1
-            entry = {"n": day_num}
-            for pool_name, ids in pools.items():
-                if not ids:
-                    continue
-                entry[pool_name] = pick_id(ids, f"gridiron-guess|{key}|{pool_name}")
-            puzzles[key] = entry
-            filled += 1
+        # Never change a past or current day's published answers.
+        if key in puzzles and d <= today:
+            d += dt.timedelta(days=1)
+            continue
+        day_num = (d - LAUNCH).days + 1
+        entry = {"n": day_num}
+        for pool_name, ids in pools.items():
+            if not ids:
+                continue
+            excluded = []
+            for back in range(1, NO_REPEAT_DAYS + 1):
+                prev = (d - dt.timedelta(days=back)).isoformat()
+                if prev in puzzles and pool_name in puzzles[prev]:
+                    excluded.append(puzzles[prev][pool_name])
+            # Prefer a 60-day window; if that empties a small pool, keep the
+            # most recent (len(pool)-1) exclusions so a repeat is last resort.
+            excl_set = set(excluded)
+            ordered = sorted(set(ids))
+            if not [i for i in ordered if i not in excl_set] and len(ordered) > 1:
+                excl_set = set(excluded[: len(ordered) - 1])
+            entry[pool_name] = pick_uniform(ids, f"gridiron-guess|{key}|{pool_name}", excl_set)
+        existed = key in puzzles
+        puzzles[key] = entry
+        filled += 1
+        if existed:
+            rewritten += 1
         d += dt.timedelta(days=1)
 
     DATA.mkdir(parents=True, exist_ok=True)
@@ -572,7 +617,7 @@ def build(cache_dir: Path | None = None) -> dict:
     print(json.dumps({
         "asOf": as_of,
         "counts": payload["counts"],
-        "puzzlesFilled": filled,
+        "puzzlesFilled": filled, "puzzlesRewrittenFuture": rewritten,
         "droppedSample": dropped[:8],
     }, indent=2))
     return payload
