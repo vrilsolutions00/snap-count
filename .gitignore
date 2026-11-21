@@ -1,0 +1,11 @@
+node_modules/
+ios/
+android/
+.DS_Store
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+.env
+shots/
+gg-data/

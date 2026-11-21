@@ -1,0 +1,10 @@
+{
+  "name": "gridiron-guess",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Daily football player puzzle",
+  "scripts": {
+    "refresh": "python3 scripts/refresh_roster.py",
+    "cap:init": "npx --yes @capacitor/cli@latest add ios"
+  }
+}

@@ -1,0 +1,1182 @@
+/* Gridiron Guess */
+(() => {
+  "use strict";
+
+  const LAUNCH = "2026-11-20";
+  const COLS = ["team", "div", "pos", "ht", "age", "no", "wt", "yoe", "dy"];
+  const COL_LABELS = { team: "Team", div: "Div", pos: "Pos", ht: "Ht", age: "Age", no: "No", wt: "Wt", yoe: "Yrs", dy: "Draft" };
+  const CLOSE = { ht: 2, age: 2, no: 5, wt: 10, yoe: 2, dy: 2 };
+  const NUMERIC = new Set(["ht", "age", "no", "wt", "yoe", "dy"]);
+  const MAX = { daily: 8, unlimited: 8, hard: 10, speed: 8, passplay: 8 };
+  const ACHIEVEMENTS = [
+    { id: "first-down", name: "First Down", desc: "Win your first game" },
+    { id: "hail-mary", name: "Hail Mary", desc: "Solve it in one guess" },
+    { id: "clutch", name: "Clutch", desc: "Win on your last guess" },
+    { id: "on-a-roll", name: "On a Roll", desc: "Reach a 5-game streak" },
+    { id: "iron-man", name: "Iron Man", desc: "Reach a 7-game streak" },
+    { id: "legend-hunter", name: "Legend Hunter", desc: "Solve a Legends pack" },
+    { id: "rookie-wall", name: "Rookie Wall", desc: "Solve a Rookies pack" },
+    { id: "speed-demon", name: "Speed Demon", desc: "Solve 3 in one Speed Round" },
+    { id: "two-minute", name: "Two-Minute Drill", desc: "Finish a Pass & Play match" }
+  ];
+
+  let DATA = null;
+  let PUZZLES = null;
+  let playersById = new Map();
+  const state = {
+    view: "home",
+    tier: loadJSON("gg:tier", "stars"),
+    hardMode: loadJSON("gg:hard", false),
+    settings: loadJSON("gg:settings", { sound: true, haptics: true, colorblind: false }),
+    game: null,
+    overlay: null,
+    search: "",
+    suggest: [],
+    suggestIndex: 0,
+    toast: null,
+    packPick: null,
+    speed: null,
+    pass: null,
+    archiveMonth: null
+  };
+
+  function loadJSON(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallback : JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
+  }
+  function saveJSON(key, val) {
+    localStorage.setItem(key, JSON.stringify(val));
+  }
+
+  function etDate(d) {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(d || new Date());
+  }
+  function prettyDate(iso) {
+    const parts = iso.split("-").map(Number);
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12));
+    return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(dt);
+  }
+  function shortDate(iso) {
+    const parts = iso.split("-").map(Number);
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12));
+    return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(dt);
+  }
+  function puzzleNum(iso) {
+    const a = new Date(LAUNCH + "T00:00:00Z");
+    const b = new Date(iso + "T00:00:00Z");
+    return Math.floor((b - a) / 86400000) + 1;
+  }
+  function ageOn(bd, onDate) {
+    if (!bd) return null;
+    const b = bd.split("-").map(Number);
+    const o = onDate.split("-").map(Number);
+    let age = o[0] - b[0];
+    if (o[1] < b[1] || (o[1] === b[1] && o[2] < b[2])) age--;
+    return age;
+  }
+  function fmtHt(inches) {
+    return Math.floor(inches / 12) + "'" + (inches % 12) + '"';
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+  }
+  function contrast(hex) {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff";
+  }
+  function teamInfo(abbr) { return DATA.teams[abbr]; }
+  function teamLabel(abbr) { const t = teamInfo(abbr); return t ? t.display : abbr; }
+  function city(abbr) { const t = teamInfo(abbr); return t ? t.city : abbr; }
+  function attrs(p, onDate) {
+    const t = teamInfo(p.team);
+    return {
+      team: p.team,
+      divKey: t ? t.conf + "-" + t.div : "",
+      conf: t ? t.conf : "",
+      div: t ? t.div : "",
+      pos: p.pos,
+      ht: p.ht,
+      age: ageOn(p.bd, onDate),
+      no: p.no,
+      wt: p.wt,
+      yoe: p.yoe,
+      dy: p.udfa ? "UDFA" : p.dy,
+      udfa: p.udfa
+    };
+  }
+  function displayVal(col, val) {
+    if (col === "team") return teamLabel(val);
+    if (col === "ht") return fmtHt(val);
+    if (col === "dy") return (val == null || val === "UDFA") ? "UDFA" : String(val);
+    return val == null ? "—" : String(val);
+  }
+
+  function gradeGuess(guess, answer, onDate, hard) {
+    const g = attrs(guess, onDate);
+    const a = attrs(answer, onDate);
+    const cols = hard ? COLS.filter(function (c) { return c !== "team"; }) : COLS;
+    return cols.map(function (col) { return gradeCol(col, g, a); });
+  }
+  function gradeCol(col, g, a) {
+    if (col === "team") {
+      return { col: col, grade: g.team === a.team ? "exact" : "miss", text: displayVal("team", g.team), team: g.team };
+    }
+    if (col === "div") {
+      const exact = g.divKey === a.divKey;
+      const close = !exact && g.conf === a.conf;
+      return { col: col, grade: exact ? "exact" : close ? "close" : "miss", text: g.conf, sub: g.div };
+    }
+    if (col === "pos") {
+      return { col: col, grade: g.pos === a.pos ? "exact" : "miss", text: g.pos };
+    }
+    if (col === "dy") {
+      if (g.udfa || a.udfa) {
+        return { col: col, grade: (g.udfa && a.udfa) ? "exact" : "miss", text: g.udfa ? "UDFA" : String(g.dy) };
+      }
+      return numericGrade(col, g.dy, a.dy);
+    }
+    return numericGrade(col, g[col], a[col]);
+  }
+  function numericGrade(col, gv, av) {
+    const diff = gv - av;
+    const abs = Math.abs(diff);
+    const grade = abs === 0 ? "exact" : abs <= CLOSE[col] ? "close" : "miss";
+    const arrow = abs === 0 ? "" : (gv < av ? "up" : "down");
+    return { col: col, grade: grade, text: displayVal(col, gv), arrow: arrow };
+  }
+
+  function compatible(player, guess, grades, onDate) {
+    const p = attrs(player, onDate);
+    const g = attrs(guess, onDate);
+    for (let i = 0; i < grades.length; i++) {
+      const tile = grades[i];
+      const col = tile.col;
+      if (col === "team") {
+        if (tile.grade === "exact" && p.team !== g.team) return false;
+        if (tile.grade === "miss" && p.team === g.team) return false;
+      } else if (col === "div") {
+        if (tile.grade === "exact" && p.divKey !== g.divKey) return false;
+        if (tile.grade === "close" && (p.conf !== g.conf || p.divKey === g.divKey)) return false;
+        if (tile.grade === "miss" && p.conf === g.conf) return false;
+      } else if (col === "pos") {
+        if (tile.grade === "exact" && p.pos !== g.pos) return false;
+        if (tile.grade === "miss" && p.pos === g.pos) return false;
+      } else if (col === "dy") {
+        if (g.udfa || tile.text === "UDFA") {
+          if (tile.grade === "exact" && !p.udfa) return false;
+          if (tile.grade === "miss" && p.udfa) return false;
+        } else if (!numOk(p.dy, g.dy, tile, CLOSE.dy)) return false;
+      } else if (NUMERIC.has(col)) {
+        if (!numOk(p[col], g[col], tile, CLOSE[col])) return false;
+      }
+    }
+    return true;
+  }
+  function numOk(pv, gv, tile, thr) {
+    if (pv == null || gv == null) return false;
+    const abs = Math.abs(pv - gv);
+    if (tile.grade === "exact") return pv === gv;
+    if (tile.grade === "close") {
+      if (!(abs > 0 && abs <= thr)) return false;
+    } else if (!(abs > thr)) return false;
+    if (tile.arrow === "up") return pv > gv;
+    if (tile.arrow === "down") return pv < gv;
+    return true;
+  }
+
+  function poolFor(pack, tier) {
+    return DATA.players.filter(function (p) { return inPool(p, pack, tier); });
+  }
+  function inPool(p, pack, tier) {
+    if (pack === "legends") return p.pack === "legends";
+    if (p.pack === "legends" || p.active === false) return false;
+    if (pack === "rookies") return p.rookie;
+    if (tier === "stars") return p.star;
+    if (tier === "starters") return p.starter;
+    return true;
+  }
+  function searchUniverse(pack) {
+    if (pack === "legends") return DATA.players.filter(function (p) { return p.pack === "legends"; });
+    return DATA.players.filter(function (p) { return p.pack !== "legends" && p.active !== false; });
+  }
+
+  function norm(s) {
+    return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  }
+  function levenshtein(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 99;
+    const m = [];
+    for (let i = 0; i <= a.length; i++) {
+      m[i] = [i];
+      for (let j = 1; j <= b.length; j++) {
+        if (i === 0) m[0][j] = j;
+        else {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + cost);
+        }
+      }
+    }
+    return m[a.length][b.length];
+  }
+  function searchPlayers(query, pack, excludeIds) {
+    const q = query.trim();
+    if (q.length < 1) return [];
+    const nq = norm(q);
+    const list = searchUniverse(pack);
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (excludeIds.has(p.id)) continue;
+      const names = [p.name, p.first, p.last, p.first + " " + p.last].concat(p.nick || []);
+      const given = p.name.split(" ")[0];
+      if (given && names.indexOf(given) === -1) names.push(given);
+      let score = 0;
+      for (let j = 0; j < names.length; j++) {
+        const nn = norm(names[j]);
+        if (nn === nq) score = Math.max(score, 100);
+        else if (nn.startsWith(nq)) score = Math.max(score, 80 - Math.max(0, nn.length - nq.length));
+        else if (nn.includes(nq)) score = Math.max(score, 50);
+        else if (nq.length >= 4 && levenshtein(nn, nq) === 1) score = Math.max(score, 40);
+        else if (nq.length >= 5 && levenshtein(nn, nq) === 2) score = Math.max(score, 25);
+      }
+      if (score > 0) out.push({ p: p, score: score });
+    }
+    out.sort(function (a, b) {
+      return b.score - a.score || a.p.last.localeCompare(b.p.last) || a.p.name.localeCompare(b.p.name);
+    });
+    return out.slice(0, 12).map(function (x) { return x.p; });
+  }
+  let audioCtx = null;
+  function getAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+  function beep(freq, dur, type, gain) {
+    if (!state.settings.sound) return;
+    try {
+      const c = getAudio();
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.type = type || "square";
+      o.frequency.value = freq;
+      g.gain.value = gain == null ? 0.05 : gain;
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      o.connect(g).connect(c.destination);
+      o.start();
+      o.stop(c.currentTime + dur);
+    } catch (e) {}
+  }
+  function vibrate(ms) {
+    if (state.settings.haptics && navigator.vibrate) navigator.vibrate(ms);
+  }
+  function sfxFlip() { beep(420, 0.05, "triangle", 0.03); vibrate(8); }
+  function sfxWin() {
+    beep(523, 0.12, "triangle", 0.06);
+    setTimeout(function () { beep(659, 0.12, "triangle", 0.06); }, 90);
+    setTimeout(function () { beep(784, 0.2, "triangle", 0.06); }, 180);
+    vibrate([12, 40, 18]);
+  }
+  function sfxLose() { beep(180, 0.25, "sawtooth", 0.04); vibrate(30); }
+
+  function toast(msg) {
+    state.toast = msg;
+    render();
+    setTimeout(function () {
+      if (state.toast === msg) { state.toast = null; render(); }
+    }, 1800);
+  }
+
+  function statsKey(tier) { return "gg:stats:" + tier; }
+  function getStats(tier) {
+    return loadJSON(statsKey(tier), { played: 0, wins: 0, streak: 0, maxStreak: 0, lastDate: null, dist: [0,0,0,0,0,0,0,0,0,0] });
+  }
+  function addDays(iso, n) {
+    const p = iso.split("-").map(Number);
+    const dt = new Date(Date.UTC(p[0], p[1] - 1, p[2] + n));
+    return dt.toISOString().slice(0, 10);
+  }
+  function recordDaily(tier, date, won, guesses) {
+    const s = getStats(tier);
+    if (s.lastDate === date) return s;
+    s.played += 1;
+    if (won) {
+      s.wins += 1;
+      const yesterday = addDays(date, -1);
+      s.streak = s.lastDate === yesterday ? s.streak + 1 : 1;
+      s.maxStreak = Math.max(s.maxStreak, s.streak);
+      const i = Math.min(guesses, 10) - 1;
+      if (i >= 0) s.dist[i] = (s.dist[i] || 0) + 1;
+    } else {
+      s.streak = 0;
+    }
+    s.lastDate = date;
+    saveJSON(statsKey(tier), s);
+    return s;
+  }
+  function unlock(id) {
+    const have = loadJSON("gg:achs", []);
+    if (have.indexOf(id) === -1) {
+      have.push(id);
+      saveJSON("gg:achs", have);
+      const a = ACHIEVEMENTS.filter(function (x) { return x.id === id; })[0];
+      if (a) toast("Achievement: " + a.name);
+    }
+  }
+  function dailyKey(date, tier, hard, pack) {
+    return "gg:daily:" + date + ":" + tier + ":" + (hard ? "hard" : "classic") + ":" + (pack || "live");
+  }
+
+  function pickAnswer(mode, pack, tier, date, hard) {
+    if (mode === "daily" || mode === "hard") {
+      const row = PUZZLES[date];
+      let key = pack === "legends" ? "legends" : pack === "rookies" ? "rookies" : (hard || mode === "hard") ? "hard" : tier;
+      const id = row && row[key];
+      const p = id && playersById.get(id);
+      if (p) return p;
+    }
+    const pool = poolFor(pack, hard ? "stars" : tier);
+    if (!pool.length) return null;
+    const seed = String(Date.now()) + Math.random();
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return pool[(h >>> 0) % pool.length];
+  }
+
+  function newGame(opts) {
+    const date = opts.date || etDate();
+    const mode = opts.mode;
+    const pack = opts.pack || "live";
+    const tier = opts.tier || state.tier;
+    const hard = !!(opts.hard || mode === "hard");
+    const max = MAX[mode] || 8;
+    const answer = opts.answer || pickAnswer(mode, pack, tier, date, hard);
+    return {
+      mode: mode, pack: pack, tier: tier, hard: hard, date: date,
+      answerId: answer.id,
+      max: max,
+      guesses: [],
+      grades: [],
+      remaining: poolFor(pack, hard ? "stars" : tier).map(function (p) { return p.id; }),
+      hints: { college: false, draft: false, colors: false },
+      hintCosts: 0,
+      status: "playing",
+      startedAt: Date.now(),
+      archive: !!opts.archive,
+      passSeat: opts.passSeat || null
+    };
+  }
+
+  function applyGuess(player) {
+    const g = state.game;
+    if (!g || g.status !== "playing") return;
+    if (g.guesses.indexOf(player.id) !== -1) { toast("Already guessed"); return; }
+    const answer = playersById.get(g.answerId);
+    const tiles = gradeGuess(player, answer, g.date, g.hard);
+    g.guesses.push(player.id);
+    g.grades.push(tiles);
+    g.remaining = g.remaining.filter(function (id) {
+      const p = playersById.get(id);
+      return p && compatible(p, player, tiles, g.date);
+    });
+    sfxFlip();
+    if (player.id === answer.id) {
+      g.status = "won";
+      sfxWin();
+      finishGame(true);
+    } else if (g.guesses.length >= g.max) {
+      g.status = "lost";
+      sfxLose();
+      finishGame(false);
+    }
+    persistGame();
+    state.search = "";
+    state.suggest = [];
+    state.overlay = (g.status === "won" || g.status === "lost") ? "result" : state.overlay;
+    render();
+  }
+
+  function useHint(kind) {
+    const g = state.game;
+    if (!g || g.status !== "playing" || g.hints[kind]) return;
+    const freeCollege = kind === "college" && g.mode === "daily" && !g.archive && !g.hints.college;
+    if (!freeCollege) {
+      if (g.guesses.length >= g.max - 1) {
+        toast("Not enough guesses left for that hint");
+        return;
+      }
+      g.hintCosts += 1;
+      g.max = Math.max(g.guesses.length, g.max - 1);
+    }
+    g.hints[kind] = true;
+    persistGame();
+    vibrate(10);
+    render();
+  }
+
+  function finishGame(won) {
+    const g = state.game;
+    if (g.mode === "daily" && !g.archive) {
+      const s = recordDaily(g.tier, g.date, won, g.guesses.length);
+      if (won) {
+        unlock("first-down");
+        if (g.guesses.length === 1) unlock("hail-mary");
+        if (g.guesses.length === g.max) unlock("clutch");
+        if (s.streak >= 5) unlock("on-a-roll");
+        if (s.streak >= 7) unlock("iron-man");
+      }
+    }
+    if (won && g.pack === "legends") unlock("legend-hunter");
+    if (won && g.pack === "rookies") unlock("rookie-wall");
+    if (g.mode === "speed") {
+      state.speed = state.speed || { solved: 0, attempts: 0, skipped: 0 };
+      state.speed.attempts += 1;
+      if (won) state.speed.solved += 1;
+      if (state.speed.solved >= 3) unlock("speed-demon");
+    }
+    if (g.mode === "passplay") {
+      state.pass = state.pass || { p1: null, p2: null, answerId: g.answerId, pack: g.pack, tier: g.tier, hard: g.hard };
+      const rec = { won: won, guesses: g.guesses.length, max: g.max };
+      if (g.passSeat === 1) state.pass.p1 = rec;
+      if (g.passSeat === 2) { state.pass.p2 = rec; unlock("two-minute"); }
+    }
+  }
+
+  function persistGame() {
+    const g = state.game;
+    if (!g) return;
+    if (g.mode === "daily") saveJSON(dailyKey(g.date, g.tier, g.hard, g.pack), g);
+  }
+  function loadDailyIfAny() {
+    return loadJSON(dailyKey(etDate(), state.tier, state.hardMode, "live"), null);
+  }
+
+  const root = document.getElementById("app");
+
+  function icon(name) {
+    const paths = {
+      back: '<path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+      info: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      gear: '<circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      cal: '<rect x="3" y="5" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      infinite: '<path d="M8 12c0-2.2 1.8-4 4-4h0c2 0 3 2 4 4s2 4 4 4 4-1.8 4-4-1.8-4-4-4-3 2-4 4-2 4-4 4-4-1.8-4-4z" transform="translate(-8 0)" fill="none" stroke="currentColor" stroke-width="2"/>',
+      people: '<circle cx="9" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 19c1-3 3.2-5 6-5s5 2 6 5M14 14c2 0 3.8 1.2 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" fill="currentColor"/>',
+      home: '<path d="M4 11l8-7 8 7v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 22V12h4v10" fill="none" stroke="currentColor" stroke-width="2"/>',
+      search: '<circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      school: '<path d="M3 10l9-6 9 6-9 6-9-6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12v5c2 1.5 5 2 5 2s3-.5 5-2v-5" fill="none" stroke="currentColor" stroke-width="2"/>',
+      draft: '<rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      jersey: '<path d="M8 4l2 2h4l2-2 3 2-2 4v10H7V10L5 6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
+    };
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (paths[name] || "") + "</svg>";
+  }
+
+  function badge(abbr, small) {
+    const t = teamInfo(abbr);
+    if (!t) return escapeHtml(abbr);
+    const color = contrast(t.c1);
+    const pad = small ? "1px 5px" : "2px 7px";
+    const size = small ? "9px" : "11px";
+    const minw = small ? "22px" : "26px";
+    return '<span class="badge-team" style="background:' + t.c1 + ";color:" + color + ";box-shadow:inset -7px 0 0 " + t.c2 + ";padding:" + pad + ";border-radius:5px;font-weight:800;font-size:" + size + ";letter-spacing:.02em;display:inline-block;min-width:" + minw + ';text-align:center">' + escapeHtml(t.display) + "</span>";
+  }
+
+  function silhouetteSVG(answer, guesses, painted) {
+    const t = teamInfo(answer.team);
+    const body = painted && t ? t.c1 : "#3A3A40";
+    const accent = painted && t ? t.c2 : "#6A6A70";
+    const visor = painted ? "#0A0A0C" : "#2A2A30";
+    const blur = Math.max(0, 7 - guesses * 1.1);
+    const qOp = Math.max(0, 1 - guesses / 5);
+    const sharp = Math.min(1, guesses / 6);
+    const showNum = (guesses >= 5 || (state.game && state.game.status !== "playing")) ? answer.no : "";
+    const q = (qOp > 0.05 && state.game && state.game.status === "playing") ? '<div class="q" style="opacity:' + qOp + '">?</div>' : "";
+    return '<div class="sil" aria-hidden="true"><svg viewBox="0 0 80 110" style="filter:blur(' + blur + "px) saturate(" + (painted ? 1 : 0.2) + ") contrast(" + (1 + sharp * 0.3) + ')">' +
+      '<ellipse cx="40" cy="104" rx="22" ry="5" fill="rgba(0,0,0,.4)"/>' +
+      '<path d="M28 18c0-10 24-10 24 0v6H28z" fill="' + body + '"/>' +
+      '<rect x="24" y="16" width="32" height="14" rx="7" fill="' + body + '"/>' +
+      '<rect x="27" y="20" width="26" height="8" rx="4" fill="' + visor + '"/>' +
+      '<rect x="30" y="23" width="20" height="3" fill="' + accent + '"/>' +
+      '<path d="M30 32h20l6 14H24z" fill="' + body + '"/>' +
+      '<path d="M18 44l12-8 4 10-14 8z" fill="' + body + '"/>' +
+      '<path d="M62 44L50 36l-4 10 14 8z" fill="' + body + '"/>' +
+      '<rect x="26" y="44" width="28" height="30" rx="6" fill="' + body + '"/>' +
+      '<rect x="26" y="62" width="28" height="8" fill="' + accent + '"/>' +
+      '<path d="M26 72l-2 28h12l2-28z" fill="' + body + '"/>' +
+      '<path d="M54 72l2 28H44l-2-28z" fill="' + body + '"/>' +
+      '<text x="40" y="62" text-anchor="middle" font-family="Oswald,sans-serif" font-size="14" font-weight="700" fill="' + contrast(body) + '">' + showNum + "</text></svg>" + q + "</div>";
+  }
+  function render() {
+    if (state.settings.colorblind) document.documentElement.classList.add("cb");
+    else document.documentElement.classList.remove("cb");
+    let html = "";
+    if (state.view === "home") html = viewHome();
+    else if (state.view === "packs") html = viewPacks();
+    else if (state.view === "game") html = viewGame();
+    else if (state.view === "stats") html = viewStats();
+    else if (state.view === "archive") html = viewArchive();
+    else if (state.view === "how") html = viewHow();
+    else if (state.view === "settings") html = viewSettings();
+    else html = viewHome();
+    if (state.overlay === "hints") html += sheetHints();
+    if (state.overlay === "remain") html += sheetRemain();
+    if (state.overlay === "result") html += modalResult();
+    if (state.overlay === "pass-ready") html += modalPassReady();
+    if (state.overlay === "speed-end") html += modalSpeedEnd();
+    if (state.toast) html += '<div class="toast">' + escapeHtml(state.toast) + "</div>";
+    root.innerHTML = html;
+    bind();
+  }
+
+  function viewHome() {
+    const date = etDate();
+    const n = (PUZZLES[date] && PUZZLES[date].n) || puzzleNum(date);
+    return '<div class="screen"><div class="top"><div class="ico mark">G</div><div class="top-actions">' +
+      '<button class="ico" data-go="how" aria-label="How to play">' + icon("info") + "</button>" +
+      '<button class="ico" data-go="settings" aria-label="Settings">' + icon("gear") + "</button></div></div>" +
+      '<div class="kicker">Daily player puzzle</div>' +
+      '<h1 class="logo">Gridiron<br><span>Guess</span></h1>' +
+      '<p class="tag">Eight guesses. Nine clues. One player.</p><div class="modes">' +
+      '<button class="mode primary" data-act="play-daily"><div class="mi">' + icon("cal") + "</div><div><h2>Daily</h2><p>" +
+      escapeHtml(shortDate(date)) + " · Puzzle #" + n + " · Midnight ET</p></div><span class=\"chev\">›</span></button>" +
+      '<button class="mode" data-act="packs" data-next="unlimited"><div class="mi">' + icon("infinite") +
+      '</div><div><h2>Unlimited</h2><p>Practice any pack — no streak risk</p></div><span class="chev">›</span></button>' +
+      '<button class="mode" data-act="packs" data-next="passplay"><div class="mi">' + icon("people") +
+      '</div><div><h2>Pass & Play</h2><p>Head-to-head on one phone</p></div><span class="chev">›</span></button>' +
+      '<button class="mode" data-act="packs" data-next="speed"><div class="mi">' + icon("bolt") +
+      '</div><div><h2>Speed Round</h2><p>60 seconds on the clock</p></div><span class="chev">›</span></button></div>' +
+      '<div class="diff-label">Daily difficulty · Answer pool</div><div class="pills">' +
+      ["stars","starters","full"].map(function (t) {
+        return '<button data-tier="' + t + '" class="' + (state.tier===t?"on":"") + '">' + t[0].toUpperCase() + t.slice(1) + "</button>";
+      }).join("") + "</div>" +
+      '<div class="hard-row"><span>Hard mode — hide the Team column</span>' +
+      '<button class="toggle ' + (state.hardMode?"on":"") + '" data-act="toggle-hard" aria-pressed="' + state.hardMode + '"><i></i></button></div>' +
+      '<div class="home-foot"><button class="chip" data-go="stats">' + icon("home") + " Stats</button>" +
+      '<button class="chip" data-go="archive">Archive</button>' +
+      '<button class="chip ghost" data-go="how">How to play</button></div>' +
+      '<p class="legal">Not affiliated with any professional football league or teams.<br>Player data via nflverse, CC BY 4.0.</p></div>';
+  }
+
+  function viewPacks() {
+    const counts = DATA.counts;
+    const label = (state.packPick || "unlimited").replace("passplay", "Pass & Play");
+    return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">' + escapeHtml(label) + '</div><div style="width:40px"></div></div>' +
+      '<div class="page-title"><h1>Choose a pack</h1><p>Practice anytime. These games never touch your daily streak.</p></div>' +
+      '<button class="pack" data-act="start-pack" data-pack="live"><div class="eyebrow">Default · Live roster</div><h3>All players</h3>' +
+      "<p>Current rosters only. Guess anyone — answers follow the Stars, Starters, or Full pool you pick next.</p>" +
+      '<div class="stat">' + counts.stars + " stars · " + counts.starters + " starters · " + counts.full + " full</div></button>" +
+      '<button class="pack" data-act="start-pack" data-pack="rookies"><div class="eyebrow">Themed pack</div><h3>Rookies</h3>' +
+      "<p>First-year players only — years in the league is always 0. A tighter, tougher pool.</p>" +
+      '<div class="stat">' + counts.rookies + " rookies this season</div></button>" +
+      '<button class="pack" data-act="start-pack" data-pack="legends"><div class="eyebrow">Retired stars · Peak years</div><h3>Legends</h3>' +
+      "<p>A curated set of household names from past seasons, graded on peak team, number, and size.</p>" +
+      '<div class="stat">' + counts.legends + " retired stars</div></button>" +
+      '<p class="legal">Retired players appear only in Legends. Not affiliated with any professional football league or teams.</p></div>';
+  }
+
+  function viewGame() {
+    const g = state.game;
+    const answer = playersById.get(g.answerId);
+    const left = g.max - g.guesses.length;
+    const hardClass = g.hard ? " hard" : "";
+    const cols = g.hard ? COLS.filter(function (c) { return c !== "team"; }) : COLS;
+    const n = (PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date);
+    let title = "Unlimited";
+    if (g.mode === "daily") title = "Daily #" + n;
+    else if (g.mode === "speed") title = "Speed Round";
+    else if (g.mode === "passplay") title = "Pass & Play · P" + g.passSeat;
+    else if (g.pack === "legends") title = "Legends";
+    else if (g.pack === "rookies") title = "Rookies";
+    let rows = "";
+    for (let i = 0; i < g.max; i++) {
+      if (i < g.guesses.length) {
+        const p = playersById.get(g.guesses[i]);
+        const tiles = g.grades[i];
+        rows += '<div class="row-block"><div class="who">' + badge(p.team, true) + ' <span class="nm">' + escapeHtml(p.name) +
+          '</span> <span class="num">#' + p.no + "</span></div><div class=\"tiles" + hardClass + '">' +
+          tiles.map(tileHtml).join("") + "</div></div>";
+      } else {
+        rows += '<div class="row-block"><div class="tiles' + hardClass + '">' + cols.map(function () { return '<div class="tile"></div>'; }).join("") + "</div></div>";
+      }
+    }
+    const painted = g.hints.colors || g.status !== "playing";
+    const hintsLine = [];
+    if (g.hints.college) hintsLine.push("College: " + (answer.college || "Not listed"));
+    if (g.hints.draft) hintsLine.push(answer.udfa ? "Entered the league undrafted." : ("Drafted " + answer.dy + " · Round " + answer.dr + (answer.dp ? " · Pick " + answer.dp : "")));
+    let timer = "";
+    if (g.mode === "speed" && state.speed) {
+      timer = '<span class="timer' + (state.speed.left <= 10 ? " low" : "") + '" data-timer>' + fmtTime(state.speed.left) + "</span>";
+    }
+    const playing = g.status === "playing";
+    const packLabel = g.pack === "legends" ? "Legends" : g.pack === "rookies" ? "Rookies" : (g.tier[0].toUpperCase() + g.tier.slice(1));
+    let suggest = "";
+    if (state.suggest.length) {
+      suggest = '<div class="suggest">' + state.suggest.map(function (p, i) {
+        return '<button data-act="pick" data-id="' + p.id + '" class="' + (i===state.suggestIndex?"on":"") + '">' +
+          badge(p.team, true) + " <span>" + escapeHtml(p.name) + '</span> <span class="meta">' + p.pos + " #" + p.no + "</span></button>";
+      }).join("") + "</div>";
+    }
+    const search = playing
+      ? '<div class="search-bar"><span class="mag">' + icon("search") + '</span><input id="guess" type="text" enterkeyhint="go" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Guess a player" value="' +
+        escapeHtml(state.search) + '"/>' + suggest + "</div>"
+      : '<div class="actions" style="margin-top:8px"><button class="btn gold" data-act="show-result">See result</button>' +
+        ((g.mode === "unlimited" || g.mode === "speed") ? '<button class="btn ghost" data-act="again">Play again</button>' : "") + "</div>";
+    return '<div class="screen"><div class="top"><button class="ico" data-act="leave-game" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">' + escapeHtml(title) + '</div><button class="ico" data-go="how" aria-label="Info">' + icon("info") + "</button></div>" +
+      '<div class="game-meta"><div class="left">' + escapeHtml(shortDate(g.date)) + " · <b>" + packLabel + "</b>" +
+      (g.hard ? " · Hard" : "") + (g.mode === "speed" ? " · " + (state.speed ? state.speed.solved : 0) + " solved" : "") + "</div>" +
+      (timer || ('<span class="guesses-left' + (left<=2?" low":"") + '">' + left + " guess" + (left===1?"":"es") + " left</span>")) + "</div>" +
+      silhouetteSVG(answer, g.guesses.length + (painted && g.hints.colors ? 2 : 0), painted) +
+      (hintsLine.length ? '<p class="legal" style="margin:0 0 8px;color:var(--gold)">' + hintsLine.map(escapeHtml).join(" · ") + "</p>" : "") +
+      '<div class="board-wrap"><div class="cols' + hardClass + '">' + cols.map(function (c) { return "<span>" + COL_LABELS[c] + "</span>"; }).join("") + "</div>" + rows + "</div>" +
+      search + '<div class="game-foot"><button class="hints-btn" data-act="hints"' + (playing?"":" disabled") + ">Hints</button>" +
+      (g.mode === "speed" && playing ? '<button class="skip" data-act="speed-skip">Skip</button>' : "") +
+      '<div class="remain"><button data-act="remain">' + g.remaining.length + " could still fit</button></div></div></div>";
+  }
+
+  function tileHtml(t, idx) {
+    const glyph = t.grade === "exact" ? "✓" : t.grade === "close" ? "≈" : "–";
+    const delay = ' style="animation-delay:' + (idx * 70) + 'ms"';
+    const arrow = t.arrow === "up" ? "▲" : t.arrow === "down" ? "▼" : "";
+    let inner;
+    if (t.col === "team") inner = badge(t.team, true);
+    else if (t.col === "div") inner = escapeHtml(t.text) + '<span class="div-sub">' + escapeHtml(t.sub) + "</span>";
+    else inner = escapeHtml(t.text);
+    return '<div class="tile filled ' + t.grade + '"' + delay + ">" + (arrow ? '<span class="arrow">' + arrow + "</span>" : "") + inner + '<span class="glyph">' + glyph + "</span></div>";
+  }
+
+  function fmtTime(s) {
+    const n = Math.max(0, Math.ceil(s));
+    return Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
+  }
+
+  function sheetHints() {
+    const g = state.game;
+    const answer = playersById.get(g.answerId);
+    const freeReady = g.mode === "daily" && !g.archive && !g.hints.college;
+    function cost(used, free) {
+      return '<span class="pill-cost ' + (used ? "used" : free ? "free" : "") + '">' + (used ? "Used" : free ? "Free today" : "−1 guess") + "</span>";
+    }
+    return '<div class="overlay" data-act="close-overlay"><div class="sheet" data-stop><div class="handle"></div><h3>Hints</h3>' +
+      '<p class="lead">One free hint per daily. Extra lifelines cost a guess and show on your share card.</p>' +
+      '<button class="hint-row" data-act="use-hint" data-hint="college"' + (g.hints.college?" disabled":"") + '><div class="ico">' + icon("school") +
+      "</div><div><h4>Reveal college</h4><p>" + (g.hints.college ? escapeHtml(answer.college || "Not listed") : "Shows the school, nothing else.") + "</p></div>" +
+      cost(g.hints.college, freeReady) + "</button>" +
+      '<button class="hint-row" data-act="use-hint" data-hint="draft"' + (g.hints.draft?" disabled":"") + '><div class="ico">' + icon("draft") +
+      "</div><div><h4>Draft year &amp; round</h4><p>Or “entered the league undrafted.”</p></div>" + cost(g.hints.draft, false) + "</button>" +
+      '<button class="hint-row" data-act="use-hint" data-hint="colors"' + (g.hints.colors?" disabled":"") + '><div class="ico">' + icon("jersey") +
+      "</div><div><h4>Jersey colors</h4><p>Paints the silhouette in team colors. No likeness.</p></div>" + cost(g.hints.colors, false) + "</button>" +
+      "</div></div>";
+  }
+
+  function sheetRemain() {
+    const g = state.game;
+    const list = g.remaining.map(function (id) { return playersById.get(id); }).filter(Boolean)
+      .sort(function (a, b) { return a.last.localeCompare(b.last) || a.name.localeCompare(b.name); });
+    const rows = list.slice(0, 80).map(function (p) {
+      return '<button class="list-row" data-act="pick" data-id="' + p.id + '">' + badge(p.team, true) +
+        "<div><h4>" + escapeHtml(p.name) + "</h4><p>" + p.pos + " · #" + p.no + " · " + escapeHtml(city(p.team)) + "</p></div></button>";
+    }).join("");
+    return '<div class="overlay" data-act="close-overlay"><div class="sheet" data-stop><div class="handle"></div><h3>Still in the hunt</h3>' +
+      '<p class="lead">' + list.length + " player" + (list.length===1?"":"s") + " still match every clue so far.</p>" +
+      rows + (list.length > 80 ? '<p class="legal">Showing first 80.</p>' : "") + "</div></div>";
+  }
+
+  function emojiGrid(g) {
+    const map = { exact: "🟩", close: "🟨", miss: "⬛" };
+    return g.grades.map(function (row) { return row.map(function (t) { return map[t.grade]; }).join(""); }).join("\n");
+  }
+  function shareHeadline(g) {
+    const n = (PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date);
+    const score = g.status === "won" ? (g.guesses.length + "/" + g.max) : ("X/" + g.max);
+    const pack = g.pack === "live" ? (g.tier[0].toUpperCase() + g.tier.slice(1)) : (g.pack[0].toUpperCase() + g.pack.slice(1));
+    return "Gridiron Guess · " + pack + (g.hard ? " Hard" : "") + " #" + n + " " + score;
+  }
+  function factLine(p) {
+    if (p.udfa) return "“Entered the league as an undrafted free agent.”";
+    if (p.dy && p.dr) return "“Drafted in round " + p.dr + " in " + p.dy + ".”";
+    if (p.college) return "“Played college football at " + p.college + ".”";
+    return "";
+  }
+  function modalResult() {
+    const g = state.game;
+    const p = playersById.get(g.answerId);
+    const won = g.status === "won";
+    const s = getStats(g.tier);
+    const title = won ? ("Solved in " + g.guesses.length + " · " + (g.tier[0].toUpperCase() + g.tier.slice(1))) : "OUT OF GUESSES";
+    let extra = "";
+    if (g.mode === "daily" && !g.archive) {
+      extra += '<p class="streak-line">Streak <b>' + s.streak + "</b> · Best " + s.maxStreak + " · Next puzzle at midnight ET</p>";
+      extra += '<div class="actions"><button class="btn ghost" data-go="home">Home</button></div>';
+    }
+    if (g.mode === "unlimited" || g.mode === "speed") {
+      extra += '<div class="actions"><button class="btn ghost" data-act="again">Play again</button><button class="btn ghost" data-go="home">Home</button></div>';
+    }
+    if (g.mode === "passplay" && g.passSeat === 1) {
+      extra += '<div class="actions"><button class="btn gold" data-act="pass-to-p2">Pass the phone</button></div>';
+    }
+    if (g.mode === "passplay" && g.passSeat === 2) extra += passSummary();
+    return '<div class="overlay center" data-act="close-overlay"><div class="card" data-stop><div class="solved">' + escapeHtml(title) + "</div>" +
+      '<div class="ident">' + silhouetteSVG(p, 8, true).replace('class="sil"', 'class="sil" style="width:72px;height:90px"') +
+      "<div><h2>" + escapeHtml(p.name) + "</h2><p>" + escapeHtml(city(p.team)) + " · " + p.pos + " · #" + p.no + "</p></div></div>" +
+      '<dl class="facts"><div><dt>Team</dt><dd>' + escapeHtml(city(p.team)) + "</dd></div><div><dt>Position</dt><dd>" + p.pos +
+      "</dd></div><div><dt>College</dt><dd>" + escapeHtml(p.college || "—") + "</dd></div><div><dt>Draft</dt><dd>" +
+      (p.udfa ? "UDFA" : (p.dy + " · Round " + p.dr)) + "</dd></div><div><dt>Years</dt><dd>" + p.yoe +
+      "</dd></div><div><dt>Height / Wt</dt><dd>" + fmtHt(p.ht) + " · " + p.wt + " lb</dd></div></dl>" +
+      '<p class="factoid">' + escapeHtml(factLine(p)) + "</p>" +
+      '<div class="share-box"><div class="cap">Spoiler-free share</div><div style="font-weight:700;margin-bottom:6px">' +
+      escapeHtml(shareHeadline(g)) + '</div><pre class="emoji">' + emojiGrid(g) + "</pre></div>" +
+      '<div class="actions"><button class="btn gold" data-act="share-image">Share image</button>' +
+      '<button class="btn ghost" data-act="copy-grid">Copy grid</button></div>' + extra + "</div></div>";
+  }
+  function passSummary() {
+    const p = state.pass;
+    if (!p || !p.p1 || !p.p2) return "";
+    function score(r) { return r.won ? r.guesses : 99; }
+    let msg = "It's a tie";
+    if (score(p.p1) < score(p.p2)) msg = "Player 1 wins";
+    else if (score(p.p2) < score(p.p1)) msg = "Player 2 wins";
+    else if (!p.p1.won && !p.p2.won) msg = "Neither found them — tie";
+    function fmt(r) { return r.won ? (r.guesses + "/" + r.max) : ("X/" + r.max); }
+    return '<p class="streak-line"><b>' + msg + "</b><br>P1 " + fmt(p.p1) + " · P2 " + fmt(p.p2) +
+      '</p><div class="actions"><button class="btn ghost" data-go="home">Home</button></div>';
+  }
+  function modalPassReady() {
+    return '<div class="overlay center"><div class="card" data-stop><div class="solved">Pass & Play</div>' +
+      '<h2 style="font-family:var(--font-d);text-align:center;margin:8px 0 12px">HAND THE PHONE TO PLAYER 2</h2>' +
+      '<p class="legal">Same player, fresh board. Fewer guesses wins.</p>' +
+      '<div class="actions"><button class="btn gold" data-act="start-p2">I\'m Player 2</button></div></div></div>';
+  }
+  function modalSpeedEnd() {
+    const s = state.speed || { solved: 0 };
+    return '<div class="overlay center" data-act="close-overlay"><div class="card" data-stop><div class="solved">Time\'s up</div>' +
+      '<h2 style="font-family:var(--font-d);text-align:center;font-size:42px;margin:8px 0">' + s.solved + "</h2>" +
+      '<p class="legal">Players solved in 60 seconds.</p><div class="actions">' +
+      '<button class="btn gold" data-act="again">Play again</button><button class="btn ghost" data-go="home">Home</button></div></div></div>';
+  }
+
+  function viewStats() {
+    const s = getStats(state.tier);
+    const pct = s.played ? Math.round((s.wins / s.played) * 100) : 0;
+    const maxd = Math.max(1, Math.max.apply(null, s.dist));
+    const have = {};
+    (loadJSON("gg:achs", [])).forEach(function (id) { have[id] = true; });
+    const bars = s.dist.slice(0, 8).map(function (n, i) {
+      return '<div class="d"><span>' + (i + 1) + '</span><div class="bar"><i style="width:' + ((n / maxd) * 100) + '%"></i></div><span>' + n + "</span></div>";
+    }).join("");
+    const ach = ACHIEVEMENTS.map(function (a) {
+      return '<div class="ach' + (have[a.id] ? " on" : "") + '"><div class="dot"></div><div><h4>' + a.name + "</h4><p>" + a.desc + "</p></div></div>";
+    }).join("");
+    return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">Stats</div><div style="width:40px"></div></div>' +
+      '<div class="page-title"><h1>' + state.tier + " daily</h1><p>Streaks only count official daily puzzles at this difficulty.</p></div>" +
+      '<div class="stat-grid"><div class="stat-cell"><b>' + s.played + "</b><span>Played</span></div>" +
+      '<div class="stat-cell"><b>' + pct + "</b><span>Win %</span></div>" +
+      '<div class="stat-cell"><b>' + s.streak + "</b><span>Streak</span></div>" +
+      '<div class="stat-cell"><b>' + s.maxStreak + "</b><span>Best</span></div>" +
+      '<div class="stat-cell"><b>' + s.wins + "</b><span>Wins</span></div>" +
+      '<div class="stat-cell"><b>' + (DATA.counts[state.tier] || "—") + "</b><span>Pool</span></div></div>" +
+      '<h3 style="font-family:var(--font-d);letter-spacing:.06em;text-transform:uppercase;margin:8px 0">Guess distribution</h3>' +
+      '<div class="dist">' + bars + "</div>" +
+      '<h3 style="font-family:var(--font-d);letter-spacing:.06em;text-transform:uppercase;margin:18px 0 8px">Achievements</h3>' + ach + "</div>";
+  }
+
+  function viewArchive() {
+    const today = etDate();
+    const ym = (state.archiveMonth || today.slice(0, 7)).split("-").map(Number);
+    const ty = ym[0], tm = ym[1];
+    const first = new Date(Date.UTC(ty, tm - 1, 1));
+    const startDow = first.getUTCDay();
+    const daysIn = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+    const label = first.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+    let cells = "";
+    for (let i = 0; i < startDow; i++) cells += '<div class="day empty"></div>';
+    for (let d = 1; d <= daysIn; d++) {
+      const iso = ty + "-" + String(tm).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+      if (iso < LAUNCH || iso > today || !PUZZLES[iso]) {
+        cells += '<button class="day" disabled>' + d + "</button>";
+        continue;
+      }
+      const saved = loadJSON(dailyKey(iso, state.tier, state.hardMode, "live"), null);
+      let cls = "day";
+      if (saved && saved.status === "won") cls += " won";
+      else if (saved && saved.status === "lost") cls += " lost";
+      if (iso === today) cls += " today";
+      cells += '<button class="' + cls + '" data-act="open-archive" data-date="' + iso + '">' + d + "</button>";
+    }
+    const prev = addDays(ty + "-" + String(tm).padStart(2, "0") + "-01", -1).slice(0, 7);
+    const next = addDays(ty + "-" + String(tm).padStart(2, "0") + "-" + daysIn, 1).slice(0, 7);
+    return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">Archive</div><div style="width:40px"></div></div>' +
+      '<div class="page-title"><h1>Flashback</h1><p>Replay any past daily. Archive games never change your streak.</p></div>' +
+      '<div class="cal-head"><button class="ico" data-act="month" data-month="' + prev + '">' + icon("back") + "</button><b>" + label +
+      '</b><button class="ico" data-act="month" data-month="' + next + '">›</button></div>' +
+      '<div class="cal-grid">' + ["S","M","T","W","T","F","S"].map(function (d) { return '<div class="dow">' + d + "</div>"; }).join("") + cells + "</div></div>";
+  }
+
+  function viewHow() {
+    return '<div class="screen how"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">How to play</div><div style="width:40px"></div></div>' +
+      '<div class="page-title"><h1>Find the player</h1><p>You get eight guesses (ten in Hard). Each guess scores nine clues.</p></div>' +
+      "<h3>Colors</h3><ul><li><span class=\"swatch\" style=\"background:var(--exact)\"></span> Green — exact match</li>" +
+      '<li><span class="swatch" style="background:var(--close)"></span> Gold — close (same conference; height / age / years / draft year within 2; jersey number within 5; weight within 10 lb)</li>' +
+      '<li><span class="swatch" style="background:var(--miss)"></span> Gray — not close</li></ul>' +
+      "<h3>Arrows</h3><p>On number clues, ▲ means the answer is higher and ▼ means the answer is lower.</p>" +
+      "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
+      "<h3>Difficulty</h3><p>Stars is the default casual pool. Starters includes depth-chart ones. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
+      "<h3>Packs</h3><p>Rookies uses this season’s first-year players. Legends is a curated set of retired stars, graded on peak team, number, and size. Retired players never appear in the live daily.</p>" +
+      "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
+      '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +
+      escapeHtml((DATA.asOf || "").replace("T", " ").replace("Z", " UTC")) + ".</p>" +
+      "<p>This game is an independent fan project and is not affiliated with, endorsed by, or sponsored by any professional football league, team, or players association. No official logos or player likenesses are used.</p>" +
+      '<p><a href="./privacy-policy.html">Privacy policy</a></p></div>';
+  }
+
+  function viewSettings() {
+    const s = state.settings;
+    function row(key, label, desc) {
+      return '<div class="hard-row" style="padding:12px 0;border-bottom:1px solid var(--line)"><div><b>' + label +
+        '</b><div class="legal" style="text-align:left;margin:0">' + desc + '</div></div><button class="toggle ' +
+        (s[key] ? "on" : "") + '" data-act="set" data-key="' + key + '"><i></i></button></div>';
+    }
+    return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">Settings</div><div style="width:40px"></div></div>' +
+      '<div class="page-title"><h1>Settings</h1></div>' +
+      row("sound", "Sound", "Short beeps on tile flips and results.") +
+      row("haptics", "Haptics", "A light vibrate when tiles flip, if your phone allows it.") +
+      row("colorblind", "Colorblind mode", "Blue for exact, orange for close, plus a ✓ ≈ – mark on every tile.") +
+      '<p class="legal" style="text-align:left;margin-top:24px">Gridiron Guess is a free fan project. Data as of ' +
+      escapeHtml(DATA.asOf) + '. <a href="./privacy-policy.html">Privacy policy</a></p></div>';
+  }
+  function bind() {
+    root.querySelectorAll("[data-go]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        state.overlay = null;
+        state.view = b.getAttribute("data-go");
+        render();
+      });
+    });
+    root.querySelectorAll("[data-tier]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        state.tier = b.getAttribute("data-tier");
+        saveJSON("gg:tier", state.tier);
+        render();
+      });
+    });
+    root.querySelectorAll("[data-act]").forEach(function (b) {
+      b.addEventListener("click", function (ev) {
+        handleAct(b.getAttribute("data-act"), b, ev);
+      });
+    });
+    root.querySelectorAll(".overlay").forEach(function (o) {
+      o.addEventListener("click", function (ev) {
+        if (ev.target === o && o.getAttribute("data-act") === "close-overlay") {
+          state.overlay = null;
+          render();
+        }
+      });
+    });
+    const input = root.querySelector("#guess");
+    if (input) {
+      input.addEventListener("input", function () {
+        state.search = input.value;
+        const g = state.game;
+        state.suggest = searchPlayers(state.search, g.pack, new Set(g.guesses));
+        state.suggestIndex = 0;
+        renderKeepInput();
+      });
+      input.addEventListener("keydown", function (e) { onSearchKey(e); });
+    }
+  }
+
+  function renderKeepInput() {
+    const active = document.activeElement && document.activeElement.id === "guess";
+    const start = active ? document.activeElement.selectionStart : null;
+    render();
+    const input = document.getElementById("guess");
+    if (active && input) {
+      input.focus();
+      const n = state.search.length;
+      input.setSelectionRange(start == null ? n : start, start == null ? n : start);
+    }
+  }
+
+  function onSearchKey(e) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      state.suggestIndex = Math.min(state.suggest.length - 1, state.suggestIndex + 1);
+      renderKeepInput();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      state.suggestIndex = Math.max(0, state.suggestIndex - 1);
+      renderKeepInput();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const p = state.suggest[state.suggestIndex] || state.suggest[0];
+      if (p) applyGuess(p);
+    } else if (e.key === "Escape") {
+      state.suggest = [];
+      renderKeepInput();
+    }
+  }
+
+  function startGame(opts) {
+    state.game = newGame(opts);
+    state.view = "game";
+    state.overlay = null;
+    state.search = "";
+    state.suggest = [];
+    if (opts.mode === "daily") persistGame();
+    render();
+  }
+
+  function handleAct(act, btn) {
+    if (act === "toggle-hard") {
+      state.hardMode = !state.hardMode;
+      saveJSON("gg:hard", state.hardMode);
+      render();
+    } else if (act === "play-daily") {
+      const saved = loadDailyIfAny();
+      if (saved && saved.answerId && playersById.get(saved.answerId)) {
+        state.game = saved;
+        state.view = "game";
+        state.overlay = saved.status !== "playing" ? "result" : null;
+        render();
+        return;
+      }
+      startGame({ mode: "daily", pack: "live", tier: state.tier, hard: state.hardMode, date: etDate() });
+    } else if (act === "packs") {
+      state.packPick = btn.getAttribute("data-next");
+      state.view = "packs";
+      render();
+    } else if (act === "start-pack") {
+      const pack = btn.getAttribute("data-pack");
+      const mode = state.packPick || "unlimited";
+      if (mode === "speed") {
+        state.speed = { solved: 0, attempts: 0, skipped: 0, left: 60, pack: pack, started: Date.now() };
+        startGame({ mode: "speed", pack: pack, tier: state.tier, hard: state.hardMode });
+        startSpeedClock();
+      } else if (mode === "passplay") {
+        const answer = pickAnswer("unlimited", pack, state.tier, etDate(), state.hardMode);
+        state.pass = { p1: null, p2: null, answerId: answer.id, pack: pack, tier: state.tier, hard: state.hardMode };
+        startGame({ mode: "passplay", pack: pack, tier: state.tier, hard: state.hardMode, answer: answer, passSeat: 1 });
+      } else {
+        startGame({ mode: "unlimited", pack: pack, tier: state.tier, hard: state.hardMode });
+      }
+    } else if (act === "pick") {
+      const p = playersById.get(btn.getAttribute("data-id"));
+      state.overlay = null;
+      if (p) applyGuess(p);
+    } else if (act === "hints") { state.overlay = "hints"; render(); }
+    else if (act === "remain") { state.overlay = "remain"; render(); }
+    else if (act === "use-hint") { useHint(btn.getAttribute("data-hint")); }
+    else if (act === "show-result") { state.overlay = "result"; render(); }
+    else if (act === "again") {
+      if (state.game && state.game.mode === "speed") {
+        const pack = state.game.pack;
+        if (!state.speed || state.speed.left <= 0) {
+          state.speed = { solved: 0, attempts: 0, skipped: 0, left: 60, pack: pack, started: Date.now() };
+          startSpeedClock();
+        }
+        startGame({ mode: "speed", pack: pack, tier: state.tier, hard: state.hardMode });
+      } else if (state.game) {
+        startGame({ mode: state.game.mode === "daily" ? "unlimited" : state.game.mode, pack: state.game.pack, tier: state.game.tier, hard: state.game.hard });
+      }
+    } else if (act === "leave-game") {
+      if (state.game && state.game.mode === "speed") stopSpeedClock();
+      state.view = "home";
+      state.overlay = null;
+      render();
+    } else if (act === "copy-grid") copyGrid();
+    else if (act === "share-image") shareImage();
+    else if (act === "pass-to-p2") { state.overlay = "pass-ready"; render(); }
+    else if (act === "start-p2") {
+      const p = state.pass;
+      startGame({ mode: "passplay", pack: p.pack, tier: p.tier, hard: p.hard, answer: playersById.get(p.answerId), passSeat: 2 });
+    } else if (act === "speed-skip") {
+      if (state.speed) state.speed.skipped += 1;
+      startGame({ mode: "speed", pack: state.game.pack, tier: state.tier, hard: state.hardMode });
+    } else if (act === "open-archive") {
+      const date = btn.getAttribute("data-date");
+      const saved = loadJSON(dailyKey(date, state.tier, state.hardMode, "live"), null);
+      if (saved && saved.answerId && playersById.get(saved.answerId) && saved.date === date) {
+        state.game = saved;
+        state.view = "game";
+        state.overlay = saved.status !== "playing" ? "result" : null;
+        render();
+        return;
+      }
+      startGame({ mode: "daily", pack: "live", tier: state.tier, hard: state.hardMode, date: date, archive: true });
+    } else if (act === "month") {
+      state.archiveMonth = btn.getAttribute("data-month");
+      render();
+    } else if (act === "set") {
+      const key = btn.getAttribute("data-key");
+      state.settings[key] = !state.settings[key];
+      saveJSON("gg:settings", state.settings);
+      render();
+    }
+  }
+
+  async function copyGrid() {
+    const g = state.game;
+    const text = shareHeadline(g) + "\n\n" + emojiGrid(g) + "\n";
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Grid copied");
+    } catch (e) { toast("Could not copy"); }
+  }
+
+  async function shareImage() {
+    const g = state.game;
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080;
+    canvas.height = 1350;
+    const c = canvas.getContext("2d");
+    c.fillStyle = "#050506";
+    c.fillRect(0, 0, 1080, 1350);
+    const grd = c.createRadialGradient(540, 0, 20, 540, 0, 700);
+    grd.addColorStop(0, "rgba(200,255,0,0.16)");
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = grd;
+    c.fillRect(0, 0, 1080, 1350);
+    c.fillStyle = "#C8FF00";
+    c.font = "700 28px sans-serif";
+    c.textAlign = "center";
+    c.fillText("GRIDIRON GUESS", 540, 160);
+    c.fillStyle = "#fff";
+    c.font = "700 48px sans-serif";
+    c.fillText(shareHeadline(g), 540, 240);
+    const rows = g.grades;
+    const colsN = rows[0] ? rows[0].length : 9;
+    const size = 72, gap = 12;
+    const w = colsN * size + (colsN - 1) * gap;
+    const x0 = (1080 - w) / 2;
+    let y = 320;
+    const colors = { exact: "#159A55", close: "#E0A800", miss: "#2C2C30" };
+    rows.forEach(function (row) {
+      row.forEach(function (t, i) {
+        c.fillStyle = colors[t.grade];
+        const x = x0 + i * (size + gap);
+        c.beginPath();
+        const r = 12;
+        c.moveTo(x + r, y);
+        c.arcTo(x + size, y, x + size, y + size, r);
+        c.arcTo(x + size, y + size, x, y + size, r);
+        c.arcTo(x, y + size, x, y, r);
+        c.arcTo(x, y, x + size, y, r);
+        c.closePath();
+        c.fill();
+      });
+      y += size + gap;
+    });
+    const s = getStats(g.tier);
+    c.fillStyle = "#B4B4B4";
+    c.font = "600 28px sans-serif";
+    c.fillText(g.mode === "daily" ? ("Streak " + s.streak + "  ·  Best " + s.maxStreak) : "Practice game", 540, y + 70);
+    c.fillStyle = "#7A7A7A";
+    c.font = "500 22px sans-serif";
+    c.fillText("Not affiliated with any professional league or teams", 540, 1280);
+    const blob = await new Promise(function (res) { canvas.toBlob(res, "image/png"); });
+    const file = new File([blob], "gridiron-guess.png", { type: "image/png" });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Gridiron Guess" });
+        return;
+      }
+    } catch (e) {}
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "gridiron-guess.png";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Image saved");
+  }
+
+  let speedTimer = null;
+  function startSpeedClock() {
+    stopSpeedClock();
+    speedTimer = setInterval(function () {
+      if (!state.speed) return;
+      state.speed.left = Math.max(0, 60 - (Date.now() - state.speed.started) / 1000);
+      const t = document.querySelector("[data-timer]");
+      if (t) {
+        t.textContent = fmtTime(state.speed.left);
+        t.classList.toggle("low", state.speed.left <= 10);
+      }
+      if (state.speed.left <= 0) {
+        stopSpeedClock();
+        if (state.game) state.game.status = "lost";
+        state.overlay = "speed-end";
+        render();
+      }
+    }, 200);
+  }
+  function stopSpeedClock() {
+    if (speedTimer) clearInterval(speedTimer);
+    speedTimer = null;
+  }
+
+  let lastEt = etDate();
+  setInterval(function () {
+    const now = etDate();
+    if (now !== lastEt) {
+      lastEt = now;
+      if (state.view === "game" && state.game && state.game.mode === "daily" && !state.game.archive && state.game.date !== now && state.game.status === "playing") {
+        toast("A new daily puzzle is available");
+      }
+    }
+  }, 15000);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) lastEt = etDate();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (state.view !== "game" || !state.game || state.game.status !== "playing") return;
+    const input = document.getElementById("guess");
+    if (input && document.activeElement === input) return;
+    if (e.key === "/" || (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey)) {
+      if (e.key !== "/") {
+        state.search += e.key;
+        state.suggest = searchPlayers(state.search, state.game.pack, new Set(state.game.guesses));
+      }
+      render();
+      const i = document.getElementById("guess");
+      if (i) i.focus();
+      if (e.key !== "/") e.preventDefault();
+    }
+  });
+
+  async function init() {
+    try {
+      const pack = await Promise.all([
+        fetch("./data/players.json").then(function (r) { return r.json(); }),
+        fetch("./data/puzzles.json").then(function (r) { return r.json(); })
+      ]);
+      DATA = pack[0];
+      PUZZLES = pack[1];
+      playersById = new Map(DATA.players.map(function (p) { return [p.id, p]; }));
+      render();
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      }
+    } catch (err) {
+      root.innerHTML = '<div class="screen"><p class="tag">Could not load the roster. Check your connection and try again.</p></div>';
+      console.error(err);
+    }
+  }
+  init();
+})();

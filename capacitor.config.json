@@ -1,0 +1,15 @@
+{
+  "appId": "com.vril.gridironguess",
+  "appName": "Gridiron Guess",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#050506",
+  "ios": {
+    "contentInset": "automatic",
+    "preferredContentMode": "mobile"
+  },
+  "server": {
+    "iosScheme": "https",
+    "androidScheme": "https"
+  }
+}
