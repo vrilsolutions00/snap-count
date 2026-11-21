@@ -301,8 +301,10 @@ h1.logo span { color: var(--gold); display: block; }
 .timer.low { color: var(--danger); }
 
 .sil-wrap {
-  display: grid;
-  place-items: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
   margin: 4px 0 12px;
 }
 .sil {

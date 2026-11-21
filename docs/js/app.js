@@ -638,7 +638,7 @@
       '<div class="game-meta"><div class="left">' + escapeHtml(shortDate(g.date)) + " · <b>" + packLabel + "</b>" +
       (g.hard ? " · Hard" : "") + (g.mode === "speed" ? " · " + (state.speed ? state.speed.solved : 0) + " solved" : "") + "</div>" +
       (timer || ('<span class="guesses-left' + (left<=2?" low":"") + '">' + left + " guess" + (left===1?"":"es") + " left</span>")) + "</div>" +
-      silhouetteSVG(answer, g.guesses.length + (painted && g.hints.colors ? 2 : 0), painted) +
+      '<div class="sil-wrap">' + silhouetteSVG(answer, g.guesses.length + (painted && g.hints.colors ? 2 : 0), painted) + '</div>' +
       (hintsLine.length ? '<p class="legal" style="margin:0 0 8px;color:var(--gold)">' + hintsLine.map(escapeHtml).join(" · ") + "</p>" : "") +
       '<div class="board-wrap"><div class="cols' + hardClass + '">' + cols.map(function (c) { return "<span>" + COL_LABELS[c] + "</span>"; }).join("") + "</div>" + rows + "</div>" +
       search + '<div class="game-foot"><button class="hints-btn" data-act="hints"' + (playing?"":" disabled") + ">Hints</button>" +
