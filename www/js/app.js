@@ -130,6 +130,27 @@
     const cols = hard ? COLS.filter(function (c) { return c !== "team"; }) : COLS;
     return cols.map(function (col) { return gradeCol(col, g, a); });
   }
+  var POS_CANON = {
+    QB: "QB", RB: "RB", FB: "RB", WR: "WR", TE: "TE",
+    OL: "OL", OT: "OL", OG: "OL", G: "OL", C: "OL", T: "OL",
+    DL: "DL", DE: "DL", DT: "DL", NT: "DL",
+    LB: "LB", ILB: "LB", OLB: "LB", MLB: "LB",
+    DB: "DB", CB: "DB", S: "DB", FS: "DB", SS: "DB", SAF: "DB",
+    K: "K", P: "P", LS: "LS", "K/P": "K"
+  };
+  var POS_UNIT = {
+    QB: "offense", RB: "offense", WR: "offense", TE: "offense", OL: "offense",
+    DL: "defense", LB: "defense", DB: "defense",
+    K: "special", P: "special", LS: "special"
+  };
+  function canonPos(pos) {
+    var p = String(pos || "").toUpperCase().replace(/[^A-Z\/]/g, "");
+    return POS_CANON[p] || p;
+  }
+  function unitOf(pos) {
+    return POS_UNIT[canonPos(pos)] || "other";
+  }
+
   function gradeCol(col, g, a) {
     if (col === "team") {
       return { col: col, grade: g.team === a.team ? "exact" : "miss", text: displayVal("team", g.team), team: g.team };
@@ -140,7 +161,9 @@
       return { col: col, grade: exact ? "exact" : close ? "close" : "miss", text: g.conf, sub: g.div };
     }
     if (col === "pos") {
-      return { col: col, grade: g.pos === a.pos ? "exact" : "miss", text: g.pos };
+      var gp = canonPos(g.pos), ap = canonPos(a.pos);
+      var grade = gp === ap ? "exact" : (unitOf(gp) !== "other" && unitOf(gp) === unitOf(ap) ? "close" : "miss");
+      return { col: col, grade: grade, text: g.pos };
     }
     if (col === "dy") {
       if (g.udfa || a.udfa) {
@@ -172,8 +195,11 @@
         if (tile.grade === "close" && (p.conf !== g.conf || p.divKey === g.divKey)) return false;
         if (tile.grade === "miss" && p.conf === g.conf) return false;
       } else if (col === "pos") {
-        if (tile.grade === "exact" && p.pos !== g.pos) return false;
-        if (tile.grade === "miss" && p.pos === g.pos) return false;
+        var pp = canonPos(p.pos), gp = canonPos(g.pos);
+        var pu = unitOf(pp), gu = unitOf(gp);
+        if (tile.grade === "exact" && pp !== gp) return false;
+        if (tile.grade === "close" && (pp === gp || pu !== gu || pu === "other")) return false;
+        if (tile.grade === "miss" && pu === gu && pu !== "other") return false;
       } else if (col === "dy") {
         if (g.udfa || tile.text === "UDFA") {
           if (tile.grade === "exact" && !p.udfa) return false;
@@ -589,7 +615,7 @@
     return '<span class="badge-team" style="background:' + t.c1 + ";color:" + color + ";box-shadow:inset -7px 0 0 " + t.c2 + ";padding:" + pad + ";border-radius:5px;font-weight:800;font-size:" + size + ";letter-spacing:.02em;display:inline-block;min-width:" + minw + ';text-align:center">' + escapeHtml(t.display) + "</span>";
   }
 
-  function silhouetteSVG(answer, guesses, painted) {
+  function silhouetteSVG(answer, guesses, painted, inline) {
     const t = teamInfo(answer.team);
     const body = painted && t ? t.c1 : "#3A3A40";
     const accent = painted && t ? t.c2 : "#6A6A70";
@@ -599,7 +625,7 @@
     const sharp = Math.min(1, guesses / 6);
     const showNum = (guesses >= 5 || (state.game && state.game.status !== "playing")) ? answer.no : "";
     const q = (qOp > 0.05 && state.game && state.game.status === "playing") ? '<div class="q" style="opacity:' + qOp + '">?</div>' : "";
-    return '<div class="sil" aria-hidden="true"><svg viewBox="0 0 80 110" style="filter:blur(' + blur + "px) saturate(" + (painted ? 1 : 0.2) + ") contrast(" + (1 + sharp * 0.3) + ')">' +
+    const html = '<div class="sil" aria-hidden="true"><svg viewBox="0 0 80 110" style="filter:blur(' + blur + "px) saturate(" + (painted ? 1 : 0.2) + ") contrast(" + (1 + sharp * 0.3) + ')">' +
       '<ellipse cx="40" cy="104" rx="22" ry="5" fill="rgba(0,0,0,.4)"/>' +
       '<path d="M28 18c0-10 24-10 24 0v6H28z" fill="' + body + '"/>' +
       '<rect x="24" y="16" width="32" height="14" rx="7" fill="' + body + '"/>' +
@@ -613,6 +639,7 @@
       '<path d="M26 72l-2 28h12l2-28z" fill="' + body + '"/>' +
       '<path d="M54 72l2 28H44l-2-28z" fill="' + body + '"/>' +
       '<text x="40" y="62" text-anchor="middle" font-family="Oswald,sans-serif" font-size="14" font-weight="700" fill="' + contrast(body) + '">' + showNum + "</text></svg>" + q + "</div>";
+    return inline ? html : '<div class="sil-wrap">' + html + "</div>";
   }
   function render() {
     if (state.settings.colorblind) document.documentElement.classList.add("cb");
@@ -735,7 +762,7 @@
       '<div class="game-meta"><div class="left">' + escapeHtml(shortDate(g.date)) + " · <b>" + packLabel + "</b>" +
       (g.hard ? " · Hard" : "") + (g.mode === "speed" ? " · " + (state.speed ? state.speed.solved : 0) + " solved" : "") + "</div>" +
       (timer || ('<span class="guesses-left' + (left<=2?" low":"") + '">' + left + " guess" + (left===1?"":"es") + " left</span>")) + "</div>" +
-      '<div class="sil-wrap">' + silhouetteSVG(answer, g.guesses.length + (painted && g.hints.colors ? 2 : 0), painted) + '</div>' +
+      silhouetteSVG(answer, g.guesses.length + (painted && g.hints.colors ? 2 : 0), painted) +
       (hintsLine.length ? '<p class="legal" style="margin:0 0 8px;color:var(--gold)">' + hintsLine.map(escapeHtml).join(" · ") + "</p>" : "") +
       '<div class="board-wrap"><div class="cols' + hardClass + '">' + cols.map(function (c) { return "<span>" + COL_LABELS[c] + "</span>"; }).join("") + "</div>" + rows + "</div>" +
       search + '<div class="game-foot"><button class="hints-btn" data-act="hints"' + (playing?"":" disabled") + ">Hints</button>" +
@@ -826,7 +853,7 @@
     }
     if (g.mode === "passplay" && g.passSeat === 2) extra += passSummary();
     return '<div class="overlay center" data-act="close-overlay"><div class="card" data-stop><div class="solved">' + escapeHtml(title) + "</div>" +
-      '<div class="ident">' + silhouetteSVG(p, 8, true).replace('class="sil"', 'class="sil" style="width:72px;height:90px"') +
+      '<div class="ident">' + silhouetteSVG(p, 8, true, true).replace('class="sil"', 'class="sil" style="width:72px;height:90px"') +
       "<div><h2>" + escapeHtml(p.name) + "</h2><p>" + escapeHtml(city(p.team)) + " · " + p.pos + " · #" + p.no + "</p></div></div>" +
       '<dl class="facts"><div><dt>Team</dt><dd>' + escapeHtml(city(p.team)) + "</dd></div><div><dt>Position</dt><dd>" + p.pos +
       "</dd></div><div><dt>College</dt><dd>" + escapeHtml(p.college || "—") + "</dd></div><div><dt>Draft</dt><dd>" +
@@ -928,8 +955,9 @@
       '</button><div class="top-title">How to play</div><div style="width:40px"></div></div>' +
       '<div class="page-title"><h1>Find the player</h1><p>You get eight guesses (ten in Hard). Each guess scores nine clues.</p></div>' +
       "<h3>Colors</h3><ul><li><span class=\"swatch\" style=\"background:var(--exact)\"></span> Green — exact match</li>" +
-      '<li><span class="swatch" style="background:var(--close)"></span> Gold — close (same conference; height / age / years / draft year within 2; jersey number within 5; weight within 10 lb)</li>' +
+      '<li><span class="swatch" style="background:var(--close)"></span> Gold — close (same conference; same unit for position; height / age / years / draft year within 2; jersey number within 5; weight within 10 lb)</li>' +
       '<li><span class="swatch" style="background:var(--miss)"></span> Gray — not close</li></ul>' +
+      "<h3>Position</h3><p>Green is the exact position. Gold means a different position on the same unit: offense (QB, RB, WR, TE, OL), defense (DL, LB, DB), or special teams (K, P, LS). Gray means a different unit.</p>" +
       "<h3>Arrows</h3><p>On number clues, ▲ means the answer is higher and ▼ means the answer is lower.</p>" +
       "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
       "<h3>Difficulty</h3><p>Starters is the default pool: every current depth-chart starter, chosen uniformly at random. Stars is a smaller, more familiar list. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
