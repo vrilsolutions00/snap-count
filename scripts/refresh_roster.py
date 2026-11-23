@@ -217,6 +217,30 @@ def pick_id(ids: list[str], seed: str) -> str:
 
 NO_REPEAT_DAYS = 60
 
+STAR_POOL_SIZE = 100
+
+
+def assign_star_flags(players: list[dict], size: int = STAR_POOL_SIZE) -> list[str]:
+    """Mark exactly `size` current players as Stars via Sleeper search_rank.
+
+    `_rank` is Sleeper search_rank (lower is better), already attached by the
+    roster build. Players without a rank sort last and are only used to fill
+    if fewer than `size` ranked players remain. Returns the chosen ids.
+    """
+    def sort_key(rec: dict):
+        rank = rec.get("_rank")
+        # Missing ranks go after any real rank.
+        rank_key = rank if isinstance(rank, int) else 10**9
+        return (rank_key, rec.get("last") or "", rec.get("first") or "", rec["id"])
+
+    ranked = sorted(players, key=sort_key)
+    chosen = {rec["id"] for rec in ranked[:size]}
+    for rec in players:
+        rec["star"] = rec["id"] in chosen
+    return [rec["id"] for rec in ranked[:size]]
+
+
+
 
 def pick_uniform(ids: list[str], seed: str, excluded: set[str] | None = None) -> str:
     """Uniform date-hash pick. Avoids excluded ids when any candidates remain.
@@ -413,18 +437,11 @@ def build(cache_dir: Path | None = None) -> dict:
         else:
             dropped.append((name, team, rec.get("pos"), jersey, "missing fields"))
 
-    # Stars: popular enough for casual fans, plus every starting QB.
+    # Stars: exactly the top 100 current players by Sleeper search_rank
+    # (lower is more popular / relevant). Retired or cut players drop off
+    # on refresh and the list is refilled to 100. Ties break by name, then id.
+    assign_star_flags(built)
     for rec in built:
-        rank = rec.get("_rank")
-        is_star = False
-        skill = rec["pos"] in {"QB", "RB", "WR", "TE"}
-        if rank is not None and skill and rank <= 120:
-            is_star = True
-        if rank is not None and rank <= 60:
-            is_star = True
-        if rec["pos"] == "QB" and rec["starter"]:
-            is_star = True
-        rec["star"] = is_star
         rec.pop("_rank", None)
 
     live_ids = {p["id"] for p in built}

@@ -10,7 +10,7 @@ The GitHub repository is [vrilsolutions00/snap-count](https://github.com/vrilsol
 
 - Daily puzzle seeded at midnight Eastern Time (same answer for everyone)
 - Clues: Team, Division, Position, Height, Age, Number, Weight, Years, Draft year (UDFA-aware), with up/down arrows
-- Difficulty tiers: Starters (default), Stars, Full
+- Difficulty tiers: Starters (default), Stars (top 100 current players by Sleeper search rank, refreshed with the roster), Full
 - Hard mode (no Team column), Unlimited, 60-second Speed Round, Pass & Play
 - Rookies and Legends packs
 - Hints, remaining-candidates list, spoiler-free share grid and share image
