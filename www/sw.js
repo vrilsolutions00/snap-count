@@ -1,4 +1,4 @@
-const CACHE = "sc-v6";
+const CACHE = "sc-v7";
 const SHELL = [
   "./",
   "./index.html",

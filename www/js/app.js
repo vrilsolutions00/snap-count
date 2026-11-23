@@ -787,7 +787,7 @@
       '<div class="board-wrap"><div class="cols' + hardClass + '">' + cols.map(function (c) { return "<span>" + COL_LABELS[c] + "</span>"; }).join("") + "</div>" + rows + "</div>" +
       search + '<div class="game-foot"><button class="hints-btn" data-act="hints"' + (playing?"":" disabled") + ">Hints</button>" +
       (g.mode === "speed" && playing ? '<button class="skip" data-act="speed-skip">Skip</button>' : "") +
-      '<div class="remain"><button data-act="remain">' + g.remaining.length + " could still fit</button></div></div></div>";
+      "</div></div>";
   }
 
   function tileHtml(t, idx) {
