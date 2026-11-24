@@ -949,7 +949,7 @@ html.cb .tile.close .cue { background: rgba(48, 20, 0, 0.55); color: #FFF1E0; }
 
 /* College mode */
 .cols.college,
-.tiles.college { grid-template-columns: repeat(8, 1fr); }
+.tiles.college { grid-template-columns: repeat(9, 1fr); }
 .mode .new-pill {
   display: inline-block;
   margin-left: 6px;

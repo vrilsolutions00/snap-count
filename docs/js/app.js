@@ -8,10 +8,10 @@
   const CLOSE = { ht: 2, age: 2, no: 5, wt: 10, yoe: 2, dy: 2 };
   const NUMERIC = new Set(["ht", "age", "no", "wt", "yoe", "dy"]);
   const MAX = { daily: 8, unlimited: 8, hard: 10, speed: 8, passplay: 8 };
-  const CCOLS = ["team", "conf", "pos", "cls", "no", "ht", "wt", "home"];
-  const CCOL_LABELS = { team: "Team", conf: "Conf", pos: "Pos", cls: "Class", no: "No", ht: "Ht", wt: "Wt", home: "Home" };
+  const CCOLS = ["team", "conf", "rank", "pos", "cls", "no", "ht", "wt", "home"];
+  const CCOL_LABELS = { team: "Team", conf: "Conf", rank: "Rank", pos: "Pos", cls: "Class", no: "No", ht: "Ht", wt: "Wt", home: "Home" };
   const CLASS_LABELS = { 1: "FR", 2: "SO", 3: "JR", 4: "SR", 5: "GS" };
-  const CCLOSE = { cls: 1, no: 5, ht: 2, wt: 10 };
+  const CCLOSE = { cls: 1, rank: 3, no: 5, ht: 2, wt: 10 };
   const CPOS_UNIT = { QB: "offense", RB: "offense", WR: "offense", TE: "offense", C: "offense", DL: "defense" };
   const ACHIEVEMENTS = [
     { id: "first-down", name: "First Down", desc: "Win your first game" },
@@ -122,11 +122,17 @@
   function colLabel(g, c) { return g.pack === "college" ? CCOL_LABELS[c] : COL_LABELS[c]; }
   function cattrs(p) {
     const t = teamInfo(p.team);
-    return { team: p.team, conf: t ? t.conf : "", pos: p.pos, cls: p.cls == null ? null : p.cls, no: p.no, ht: p.ht, wt: p.wt, hs: p.hs || "", hc: p.hc || "" };
+    return { team: p.team, conf: t ? t.conf : "", rank: t && t.rank != null ? t.rank : null, pos: p.pos, cls: p.cls == null ? null : p.cls, no: p.no, ht: p.ht, wt: p.wt, hs: p.hs || "", hc: p.hc || "" };
   }
   function cgradeCol(col, g, a) {
     if (col === "team") return { col: col, grade: g.team === a.team ? "exact" : "miss", text: teamLabel(g.team), team: g.team };
     if (col === "conf") return { col: col, grade: g.conf === a.conf ? "exact" : "miss", text: g.conf };
+    if (col === "rank") {
+      const gv = g.rank, av = a.rank;
+      if (gv == null || av == null) return { col: col, grade: "miss", text: gv == null ? "—" : "#" + gv, arrow: "" };
+      const abs = Math.abs(gv - av);
+      return { col: col, grade: abs === 0 ? "exact" : abs <= CCLOSE.rank ? "close" : "miss", text: "#" + gv, arrow: abs === 0 ? "" : (av < gv ? "up" : "down") };
+    }
     if (col === "pos") {
       const grade = g.pos === a.pos ? "exact" : (CPOS_UNIT[g.pos] && CPOS_UNIT[g.pos] === CPOS_UNIT[a.pos] ? "close" : "miss");
       return { col: col, grade: grade, text: g.pos };
@@ -1246,11 +1252,11 @@
       '<li><span class="swatch" style="background:var(--miss)"></span> Gray — not close</li></ul>' +
       "<p>Every graded tile also has a small badge: ✓ exact, ~ close, – miss.</p>" +
       "<h3>Position</h3><p>Green is the exact position. Gold means a different position on the same unit: offense (QB, RB, WR, TE, OL), defense (DL, LB, DB), or special teams (K, P, LS). Gray means a different unit.</p>" +
-      "<h3>Arrows</h3><p>On number clues, ▲ means the answer is higher and ▼ means the answer is lower.</p>" +
+      "<h3>Arrows</h3><p>On number clues, ▲ means the answer is higher and ▼ means the answer is lower. On the College Rank column, ▲ means the answer’s team is ranked higher (closer to #1) and ▼ means it is ranked lower.</p>" +
       "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
       "<h3>Difficulty</h3><p>Starters is the default pool: every current depth-chart starter, chosen uniformly at random. Stars is a smaller, more familiar list. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
       "<h3>Packs</h3><p>Rookies uses this season’s first-year players. Legends is a curated set of retired stars, graded on peak team, number, and size. Retired players never appear in the live daily.</p>" +
-      "<h3>College</h3><p>College mode uses the top 100 players from SEC, ACC and Big Ten teams ranked in the latest AP Top 25: quarterbacks, running backs, receivers, tight ends, and defensive linemen. The list updates weekly with the rankings. Clues: Team, Conference, Position (gold = same side of the ball), Class (FR, SO, JR, SR, GS = fifth year or later, counted from seasons on a college roster; gold within one year), jersey number, height, weight, and Home (green = same hometown, gold = same home state). College data provided by <a href=\"https://collegefootballdata.com\" target=\"_blank\" rel=\"noopener\">CollegeFootballData.com</a>. Not affiliated with any conference or school.</p>" +
+      "<h3>College</h3><p>College mode uses the top 100 players from SEC, ACC and Big Ten teams ranked in the latest AP Top 25: quarterbacks, running backs, receivers, tight ends, and defensive linemen. The list updates weekly with the rankings. Clues: Team, Conference, Rank (the team’s AP rank; gold within 3 spots; arrows point toward the answer’s rank, with #1 at the top), Position (gold = same side of the ball), Class (FR, SO, JR, SR, GS = fifth year or later, counted from seasons on a college roster; gold within one year), jersey number, height, weight, and Home (green = same hometown, gold = same home state). College data provided by <a href=\"https://collegefootballdata.com\" target=\"_blank\" rel=\"noopener\">CollegeFootballData.com</a>. Not affiliated with any conference or school.</p>" +
       "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
       '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +
       escapeHtml((DATA.asOf || "").replace("T", " ").replace("Z", " UTC")) + ".</p>" +
