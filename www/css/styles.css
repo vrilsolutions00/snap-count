@@ -965,6 +965,37 @@ html.cb .tile.close .cue { background: rgba(48, 20, 0, 0.55); color: #FFF1E0; }
   text-transform: uppercase;
 }
 .mode.college-new { border-color: rgba(200, 255, 0, 0.28); }
+.tile.rank {
+  justify-content: center;
+  gap: 0;
+  padding: 3px 0 4px;
+  overflow: hidden;
+}
+.tile.rank .arrow,
+.tile.rank .cue { display: none; }
+.tile.rank .rank-dir {
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 800;
+}
+.tile.rank .rank-no {
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.tile.rank .rank-hint {
+  font-family: var(--font-d), Oswald, sans-serif;
+  font-size: 6px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  margin-top: 1px;
+  white-space: nowrap;
+}
+.tile.rank.exact .rank-dir { display: none; }
 .tile.home { font-size: 11px; padding: 6px 1px 8px; overflow: hidden; }
 .tile.home .div-sub {
   max-width: 100%;
