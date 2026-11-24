@@ -589,6 +589,9 @@
       if (g.passSeat === 1) state.pass.p1 = rec;
       if (g.passSeat === 2) { state.pass.p2 = rec; unlock("two-minute"); }
     }
+    if (g.mode === "daily" && !g.archive && window.goatcounter && typeof window.goatcounter.count === "function") {
+      window.goatcounter.count({ path: won ? "puzzle-won" : "puzzle-lost", event: true });
+    }
   }
 
   function persistGame() {

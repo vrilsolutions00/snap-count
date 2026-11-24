@@ -19,22 +19,24 @@
   <div class="doc">
     <p><a href="./">← Snap Count</a></p>
     <h1>Privacy Policy</h1>
-    <p>Last updated November 21, 2026.</p>
+    <p>Last updated November 24, 2026.</p>
     <h2>What this app is</h2>
     <p>Snap Count is a free, unofficial fan game. It does not require an account and is not affiliated with any professional football league, team, or players association.</p>
     <h2>Data we store on your device</h2>
     <p>Game progress, settings, streaks, achievements, and a first-result lock for each daily puzzle are saved in your browser’s local storage (and a small IndexedDB backup) on this device. That gameplay progress stays on the device unless you choose to post a score or share a screenshot yourself.</p>
     <h2>Leaderboard posts</h2>
     <p>If you post a score, we send a nickname you choose, your guess count, a server-measured solve time, the puzzle date, and a random device identifier (not your name, email, or phone) to a hosted database so the score can appear on the public daily, weekly, and streak boards, or on a friend group you join. Nicknames are filtered for kid-safe language. Posting is optional. We do not require an account.</p>
+    <h2>Visitor counts</h2>
+    <p>We use <a href="https://www.goatcounter.com/">GoatCounter</a>, a privacy-friendly visitor counter, to see how many people play, which sites sent them (for example Reddit or X), and which country they visited from. GoatCounter does not use cookies, does not store anything in your browser, does not store your IP address or a tracker ID, and does not sell data. Country is derived from a short-lived network lookup; your exact location is not recorded. When a daily puzzle ends we also send a simple “puzzle won” or “puzzle lost” event, with no player name and no guess details. You can read GoatCounter’s privacy policy at <a href="https://www.goatcounter.com/help/privacy">goatcounter.com/help/privacy</a>.</p>
     <h2>Data we do not collect</h2>
     <ul>
       <li>No sign-in, email, or profile</li>
-      <li>No location tracking</li>
+      <li>No precise (GPS) location tracking</li>
       <li>No advertising identifiers for sale</li>
       <li>No official player photos or likeness uploads</li>
     </ul>
     <h2>Network use</h2>
-    <p>The game loads its own files and a player roster snapshot from the site that hosts it (for example GitHub Pages). A service worker may cache those files so you can play offline. Leaderboard reads and optional score posts go to our Supabase project. We do not run a separate advertising service in this version.</p>
+    <p>The game loads its own files and a player roster snapshot from the site that hosts it (for example GitHub Pages). A service worker may cache those files so you can play offline. Leaderboard reads and optional score posts go to our Supabase project. A small GoatCounter script is loaded from gc.zgo.at to count visits. We do not run a separate advertising service in this version.</p>
     <h2>Player data sources</h2>
     <p>Roster facts come from <a href="https://github.com/nflverse/nflverse-data/">nflverse</a> (CC BY 4.0) and public depth or popularity hints from the Sleeper API. See the in-game About / How to play screen for attribution.</p>
     <h2>Children</h2>
@@ -42,5 +44,8 @@
     <h2>Changes</h2>
     <p>If this policy changes, we will update the date at the top of this page.</p>
   </div>
+  <!-- GoatCounter visitor counts. Replace snapcount with the site code from signup. -->
+  <script data-goatcounter="https://snapcount.goatcounter.com/count"
+          async src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>
