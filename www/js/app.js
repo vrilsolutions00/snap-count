@@ -707,6 +707,34 @@
     return '<span class="badge-team" style="background:' + t.c1 + ";color:" + color + ";box-shadow:inset -7px 0 0 " + t.c2 + ";padding:" + pad + ";border-radius:5px;font-weight:800;font-size:" + size + ";letter-spacing:.02em;display:inline-block;min-width:" + minw + ';text-align:center">' + escapeHtml(t.display) + "</span>";
   }
 
+  function logoSrc(abbr, dark) {
+    const isC = abbr.indexOf("cfb-") === 0;
+    return "./logos/" + (isC ? "ncaa/" + abbr.slice(4) : "nfl/" + abbr) + (dark ? "-dark" : "") + ".png";
+  }
+
+  function logo(abbr, where, grade) {
+    const t = teamInfo(abbr);
+    if (!t) return badge(abbr, true);
+    const dark = where !== "tile" || grade !== "exact";
+    const name = t.city || t.display || abbr;
+    return '<img class="team-logo tl-' + where + '" src="' + logoSrc(abbr, dark) + '" data-team="' + escapeHtml(abbr) + '" data-dark="' + (dark ? "1" : "0") + '" alt="' + escapeHtml(name) + '" title="' + escapeHtml(t.display || name) + '" draggable="false" onerror="window.__scLogoFallback(this)">';
+  }
+
+  window.__scLogoFallback = function (img) {
+    if (!img) return;
+    const abbr = img.getAttribute("data-team");
+    if (img.getAttribute("data-dark") === "1") {
+      img.setAttribute("data-dark", "0");
+      img.onerror = function () { window.__scLogoFallback(img); };
+      img.src = logoSrc(abbr, false);
+      return;
+    }
+    img.onerror = null;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = badge(abbr, true);
+    if (img.parentNode && tmp.firstChild) img.replaceWith(tmp.firstChild);
+  };
+
   function silhouetteSVG(answer, guesses, painted, inline) {
     const t = teamInfo(answer.team);
     const body = painted && t ? t.c1 : "#3A3A40";
@@ -834,7 +862,7 @@
       if (i < g.guesses.length) {
         const p = playersById.get(g.guesses[i]);
         const tiles = g.grades[i];
-        rows += '<div class="row-block"><div class="who">' + badge(p.team, true) + ' <span class="nm">' + escapeHtml(p.name) +
+        rows += '<div class="row-block"><div class="who">' + logo(p.team, "who") + ' <span class="nm">' + escapeHtml(p.name) +
           '</span> <span class="num">#' + p.no + "</span></div><div class=\"tiles" + colClass + '">' +
           tiles.map(tileHtml).join("") + "</div></div>";
       } else {
@@ -889,7 +917,7 @@
       else if (t.arrow === "down") aria = label + ", answer ranked lower";
     }
     let inner;
-    if (t.col === "team") inner = badge(t.team, true);
+    if (t.col === "team") inner = logo(t.team, "tile", t.grade);
     else if (t.col === "div" || t.col === "home") inner = escapeHtml(t.text) + '<span class="div-sub">' + escapeHtml(t.sub || "") + "</span>";
     else inner = escapeHtml(t.text);
     const extra = (t.col === "home" ? " home" : "") + (t.col === "rank" ? " rank" : "");
@@ -1268,7 +1296,7 @@
       "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
       '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +
       escapeHtml((DATA.asOf || "").replace("T", " ").replace("Z", " UTC")) + ".</p>" +
-      "<p>Snap Count is an independent fan project and is not affiliated with, endorsed by, or sponsored by any professional football league, team, or players association. No official logos or player likenesses are used.</p>" +
+      "<p>Snap Count is an independent fan project and is not affiliated with, endorsed by, or sponsored by any professional football league, team, or players association. Team logos are used only to identify clubs and do not imply any affiliation or endorsement. No official player likenesses are used.</p>" +
       '<p><a href="./privacy-policy.html">Privacy policy</a></p></div>';
   }
 

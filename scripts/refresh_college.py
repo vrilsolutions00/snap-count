@@ -16,7 +16,11 @@ The API key is read from $CFBD_API_KEY or the file in $CFBD_KEY_FILE
 
 Weekly API calls: 3 (teams, roster, season stats). The first run
 on a fresh box also caches past rosters (2021-2025) and the recruiting class
-used to work out class years: 6 more calls, once. Cache: $CFBD_CACHE_DIR
+used to work out class years: 6 more calls, once. If a newly added team has
+no self-hosted logo yet, the script also downloads that mark from the ESPN
+(or CFBD) logo CDN and writes it under www/logos/ncaa/ and docs/logos/ncaa/.
+Those CDN fetches are not CFBD API calls. If a logo cannot be fetched, the
+app falls back to the team pill. Cache: $CFBD_CACHE_DIR
 (default /workspace/snapcount-college-cache). Past seasons never change, so
 those files are reused; current-season files are re-fetched every run.
 
@@ -152,6 +156,71 @@ def to_int(v):
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+LOGO_SIZE = 160
+ESPN_NCAA_LOGO = "https://a.espncdn.com/i/teamlogos/ncaa/500/{id}.png"
+CFBD_NCAA_LOGO = "https://cdn.collegefootballdata.com/logos/500/{id}.png"
+
+
+def resize_logo_png(body: bytes) -> bytes | None:
+    try:
+        import io
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        im = Image.open(io.BytesIO(body)).convert("RGBA")
+        im = im.resize((LOGO_SIZE, LOGO_SIZE), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        im.save(out, format="PNG", optimize=True, compress_level=9)
+        return out.getvalue()
+    except Exception:
+        return None
+
+
+def download_logo(url: str) -> bytes | None:
+    req = urllib.request.Request(url, headers={
+        "Accept": "image/png,image/*;q=0.8",
+        "User-Agent": "SnapCountCollegeRefresh/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            if getattr(r, "status", 200) != 200:
+                return None
+            return r.read()
+    except Exception:
+        return None
+
+
+def ensure_college_logos(team_ids: dict[str, int]) -> dict:
+    """Write any missing NCAA logos for this week's pool. Not a CFBD API call."""
+    added, failed = 0, []
+    dirs = [ROOT / "www" / "logos" / "ncaa", ROOT / "docs" / "logos" / "ncaa"]
+    for display, tid in sorted(team_ids.items()):
+        lights = [d / f"{display}.png" for d in dirs]
+        darks = [d / f"{display}-dark.png" for d in dirs]
+        if all(f.exists() for f in lights):
+            for light, dark in zip(lights, darks):
+                if not dark.exists():
+                    dark.write_bytes(light.read_bytes())
+            continue
+        if tid is None:
+            failed.append(display)
+            continue
+        body = download_logo(ESPN_NCAA_LOGO.format(id=tid)) or download_logo(CFBD_NCAA_LOGO.format(id=tid))
+        data = resize_logo_png(body) if body else None
+        if not data:
+            failed.append(display)
+            continue
+        for d in dirs:
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{display}.png").write_bytes(data)
+            dark = d / f"{display}-dark.png"
+            if not dark.exists():
+                dark.write_bytes(data)
+        added += 1
+    return {"added": added, "failed": failed}
 
 
 def player_id(p) -> str:
@@ -438,12 +507,20 @@ def main() -> int:
             tmp = out / (name + ".tmp")
             tmp.write_text(json.dumps(obj, separators=(",", ":"), ensure_ascii=False))
             tmp.replace(out / name)
+    team_ids = {}
+    for t in teams:
+        tkey = school_to_key.get(t["school"])
+        if tkey in team_out and t.get("id") is not None:
+            team_ids[team_out[tkey]["display"]] = t["id"]
+    logo_stats = ensure_college_logos(team_ids)
+
     print(json.dumps({
         "season": season,
         "counts": payload["counts"],
         "playerRanks": "1-100",
         "todayInPool": bool(today_id and today_id in pool_ids),
         "retainedPastAnswers": len(needed),
+        "logos": logo_stats,
         "apiCalls": CALLS, "warnings": warnings,
     }, indent=2))
     return 0

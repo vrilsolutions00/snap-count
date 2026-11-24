@@ -1,4 +1,4 @@
-const CACHE = "sc-v16";
+const CACHE = "sc-v17";
 const SHELL = [
   "./",
   "./index.html",
@@ -17,6 +17,7 @@ const SHELL = [
   "./fonts/outfit-latin.woff2",
   "./fonts/outfit-latin-ext.woff2"
 ];
+/* Team logos in ./logos/ are cached on first use by the fetch handler, not listed here. */
 
 self.addEventListener("install", (e) => {
   e.waitUntil(

@@ -987,3 +987,11 @@ html.cb .tile.close .cue { background: rgba(48, 20, 0, 0.55); color: #FFF1E0; }
   line-height: 1.1;
   padding: 0 1px;
 }
+
+/* Official team logos in place of the team pill (tile + name row only). */
+.team-logo { display: block; object-fit: contain; pointer-events: none; user-select: none; }
+.team-logo.tl-who { width: 20px; height: 20px; align-self: center; filter: drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
+.who:has(.team-logo) { align-items: center; }
+.team-logo.tl-tile { width: 78%; height: 78%; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.55)); }
+.tile.exact .team-logo.tl-tile { filter: drop-shadow(0 0 2px rgba(255,255,255,.55)) drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
+
