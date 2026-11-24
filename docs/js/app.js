@@ -8,6 +8,11 @@
   const CLOSE = { ht: 2, age: 2, no: 5, wt: 10, yoe: 2, dy: 2 };
   const NUMERIC = new Set(["ht", "age", "no", "wt", "yoe", "dy"]);
   const MAX = { daily: 8, unlimited: 8, hard: 10, speed: 8, passplay: 8 };
+  const CCOLS = ["team", "conf", "pos", "cls", "no", "ht", "wt", "home"];
+  const CCOL_LABELS = { team: "Team", conf: "Conf", pos: "Pos", cls: "Class", no: "No", ht: "Ht", wt: "Wt", home: "Home" };
+  const CLASS_LABELS = { 1: "FR", 2: "SO", 3: "JR", 4: "SR", 5: "GS" };
+  const CCLOSE = { cls: 1, no: 5, ht: 2, wt: 10 };
+  const CPOS_UNIT = { QB: "offense", RB: "offense", WR: "offense", TE: "offense", C: "offense", DL: "defense" };
   const ACHIEVEMENTS = [
     { id: "first-down", name: "First Down", desc: "Win your first game" },
     { id: "hail-mary", name: "Hail Mary", desc: "Solve it in one guess" },
@@ -22,6 +27,8 @@
 
   let DATA = null;
   let PUZZLES = null;
+  let CDATA = null;
+  let CPUZZLES = {};
   let playersById = new Map();
   const state = {
     view: "home",
@@ -106,7 +113,47 @@
     const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
     return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff";
   }
-  function teamInfo(abbr) { return DATA.teams[abbr]; }
+  function teamInfo(abbr) { return DATA.teams[abbr] || (CDATA && CDATA.teams[abbr]); }
+  function isCollege(p) { return !!(p && typeof p.id === "string" && p.id.indexOf("cfb-") === 0); }
+  function colsFor(g) {
+    if (g.pack === "college") return CCOLS;
+    return g.hard ? COLS.filter(function (c) { return c !== "team"; }) : COLS;
+  }
+  function colLabel(g, c) { return g.pack === "college" ? CCOL_LABELS[c] : COL_LABELS[c]; }
+  function cattrs(p) {
+    const t = teamInfo(p.team);
+    return { team: p.team, conf: t ? t.conf : "", pos: p.pos, cls: p.cls == null ? null : p.cls, no: p.no, ht: p.ht, wt: p.wt, hs: p.hs || "", hc: p.hc || "" };
+  }
+  function cgradeCol(col, g, a) {
+    if (col === "team") return { col: col, grade: g.team === a.team ? "exact" : "miss", text: teamLabel(g.team), team: g.team };
+    if (col === "conf") return { col: col, grade: g.conf === a.conf ? "exact" : "miss", text: g.conf };
+    if (col === "pos") {
+      const grade = g.pos === a.pos ? "exact" : (CPOS_UNIT[g.pos] && CPOS_UNIT[g.pos] === CPOS_UNIT[a.pos] ? "close" : "miss");
+      return { col: col, grade: grade, text: g.pos };
+    }
+    if (col === "home") {
+      const sameState = !!g.hs && g.hs === a.hs;
+      const exact = sameState && !!g.hc && g.hc.toLowerCase() === a.hc.toLowerCase();
+      return { col: col, grade: exact ? "exact" : sameState ? "close" : "miss", text: g.hs || "—", sub: g.hc };
+    }
+    if (col === "cls") {
+      if (g.cls == null || a.cls == null) return { col: col, grade: "miss", text: g.cls == null ? "—" : CLASS_LABELS[g.cls], arrow: "" };
+      const d = Math.abs(g.cls - a.cls);
+      return { col: col, grade: d === 0 ? "exact" : d <= CCLOSE.cls ? "close" : "miss", text: CLASS_LABELS[g.cls], arrow: d === 0 ? "" : (g.cls < a.cls ? "up" : "down") };
+    }
+    const gv = g[col], av = a[col];
+    const abs = Math.abs(gv - av);
+    return { col: col, grade: abs === 0 ? "exact" : abs <= CCLOSE[col] ? "close" : "miss", text: col === "ht" ? fmtHt(gv) : String(gv), arrow: abs === 0 ? "" : (gv < av ? "up" : "down") };
+  }
+  function ccompatible(player, guess, grades) {
+    const p = cattrs(player), g = cattrs(guess);
+    for (let i = 0; i < grades.length; i++) {
+      const t = grades[i];
+      const fresh = cgradeCol(t.col, g, p);
+      if (fresh.grade !== t.grade || (fresh.arrow || "") !== (t.arrow || "")) return false;
+    }
+    return true;
+  }
   function teamLabel(abbr) { const t = teamInfo(abbr); return t ? t.display : abbr; }
   function city(abbr) { const t = teamInfo(abbr); return t ? t.city : abbr; }
   function attrs(p, onDate) {
@@ -134,6 +181,10 @@
   }
 
   function gradeGuess(guess, answer, onDate, hard) {
+    if (isCollege(answer)) {
+      const cg = cattrs(guess), ca = cattrs(answer);
+      return CCOLS.map(function (col) { return cgradeCol(col, cg, ca); });
+    }
     const g = attrs(guess, onDate);
     const a = attrs(answer, onDate);
     const cols = hard ? COLS.filter(function (c) { return c !== "team"; }) : COLS;
@@ -191,6 +242,7 @@
   }
 
   function compatible(player, guess, grades, onDate) {
+    if (isCollege(player)) return ccompatible(player, guess, grades);
     const p = attrs(player, onDate);
     const g = attrs(guess, onDate);
     for (let i = 0; i < grades.length; i++) {
@@ -233,7 +285,11 @@
   }
 
   function poolFor(pack, tier) {
+    if (pack === "college") return CDATA ? CDATA.players.filter(function (p) { return p.pool; }) : [];
     return DATA.players.filter(function (p) { return inPool(p, pack, tier); });
+  }
+  function collegeAnswerPool() {
+    return poolFor("college").filter(function (p) { return p.cls != null; });
   }
   function inPool(p, pack, tier) {
     if (pack === "legends") return p.pack === "legends";
@@ -244,6 +300,7 @@
     return true;
   }
   function searchUniverse(pack) {
+    if (pack === "college") return CDATA ? CDATA.players : [];
     if (pack === "legends") return DATA.players.filter(function (p) { return p.pack === "legends"; });
     return DATA.players.filter(function (p) { return p.pack !== "legends" && p.active !== false; });
   }
@@ -386,6 +443,7 @@
   }
 
   function puzzleKey(pack, tier, hard) {
+    if (pack === "college") return "college";
     if (pack === "legends") return "legends";
     if (pack === "rookies") return "rookies";
     if (hard) return "hard";
@@ -395,9 +453,10 @@
   function pickUniformSeeded(ids, date, key) {
     var ordered = ids.slice().sort();
     var excluded = [];
+    var book = key === "college" ? CPUZZLES : PUZZLES;
     for (var back = 1; back <= NO_REPEAT_DAYS; back++) {
       var prev = addDays(date, -back);
-      if (PUZZLES[prev] && PUZZLES[prev][key]) excluded.push(PUZZLES[prev][key]);
+      if (book[prev] && book[prev][key]) excluded.push(book[prev][key]);
     }
     var excl = {};
     excluded.forEach(function (id) { excl[id] = true; });
@@ -462,6 +521,13 @@
   function pickAnswer(mode, pack, tier, date, hard) {
     var isDaily = (mode === "daily");
     var key = puzzleKey(pack, tier, hard);
+    if (isDaily && key === "college") {
+      var crow = CPUZZLES[date];
+      var cp = crow && crow.college && playersById.get(crow.college);
+      if (cp) return cp;
+      var cpicked = pickUniformSeeded(collegeAnswerPool().map(function (x) { return x.id; }), date, "college");
+      return playersById.get(cpicked) || null;
+    }
     if (isDaily) {
       var row = PUZZLES[date];
       var id = row && row[key];
@@ -474,7 +540,7 @@
       var picked = pickUniformSeeded(fallbackPool.map(function (x) { return x.id; }), date, key);
       return playersById.get(picked) || null;
     }
-    var pool = poolFor(pack, tier);
+    var pool = pack === "college" ? collegeAnswerPool() : poolFor(pack, tier);
     if (!pool.length) return null;
     var avoid = recentIds(pack, tier, hard);
     var candidates = pool.filter(function (x) { return !avoid.has(x.id); });
@@ -487,7 +553,7 @@
     const mode = opts.mode;
     const pack = opts.pack || "live";
     const tier = opts.tier || state.tier;
-    const hard = !!(opts.hard || mode === "hard");
+    const hard = pack === "college" ? false : !!(opts.hard || mode === "hard");
     const max = MAX[mode] || 8;
     const answer = opts.answer || pickAnswer(mode, pack, tier, date, hard);
     if (answer) {
@@ -501,7 +567,7 @@
       guesses: [],
       grades: [],
       remaining: answerPool(pack, tier, hard, !!(hard && mode === "daily")).map(function (p) { return p.id; }),
-      hints: { college: false, draft: false, colors: false },
+      hints: { college: false, draft: false, colors: false, unit: false },
       hintCosts: 0,
       status: "playing",
       startedAt: Date.now(),
@@ -545,7 +611,8 @@
   function useHint(kind) {
     const g = state.game;
     if (!g || g.status !== "playing" || g.hints[kind]) return;
-    const freeCollege = kind === "college" && g.mode === "daily" && !g.archive && !g.hints.college;
+    const freeKind = g.pack === "college" ? "unit" : "college";
+    const freeCollege = kind === freeKind && g.mode === "daily" && !g.archive && !g.hints[freeKind];
     if (!freeCollege) {
       if (g.guesses.length >= g.max - 1) {
         toast("Not enough guesses left for that hint");
@@ -590,7 +657,7 @@
       if (g.passSeat === 2) { state.pass.p2 = rec; unlock("two-minute"); }
     }
     if (g.mode === "daily" && !g.archive && window.goatcounter && typeof window.goatcounter.count === "function") {
-      window.goatcounter.count({ path: won ? "puzzle-won" : "puzzle-lost", event: true });
+      window.goatcounter.count({ path: (g.pack === "college" ? "college-" : "puzzle-") + (won ? "won" : "lost"), event: true });
     }
   }
 
@@ -696,6 +763,8 @@
       '<p class="tag">Eight guesses. Nine clues. One player.</p><div class="modes">' +
       '<button class="mode primary" data-act="play-daily"><div class="mi">' + icon("cal") + "</div><div><h2>Daily</h2><p>" +
       escapeHtml(shortDate(date)) + " · Puzzle #" + n + " · Midnight ET</p></div><span class=\"chev\">›</span></button>" +
+      (CDATA ? '<button class="mode college-new" data-act="play-college"><div class="mi">' + icon("school") +
+        '</div><div><h2>College <span class="new-pill">New</span></h2><p>Top 25 SEC, ACC &amp; Big Ten starters · Conference and team clues</p></div><span class="chev">›</span></button>' : "") +
       '<button class="mode" data-act="packs" data-next="unlimited"><div class="mi">' + icon("infinite") +
       '</div><div><h2>Unlimited</h2><p>Practice any pack — no streak risk</p></div><span class="chev">›</span></button>' +
       '<button class="mode" data-act="packs" data-next="passplay"><div class="mi">' + icon("people") +
@@ -712,7 +781,8 @@
       '<button class="chip" data-act="open-board">Leaderboard</button>' +
       '<button class="chip" data-go="archive">Archive</button>' +
       '<button class="chip ghost" data-go="how">How to play</button></div>' +
-      '<p class="legal">Not affiliated with any professional football league or teams.<br>Player data via nflverse, CC BY 4.0.</p></div>';
+      '<p class="legal">Fan project, not affiliated with any league, conference, school, or team.<br>Player data via nflverse, CC BY 4.0.' +
+      (CDATA ? " College data provided by CollegeFootballData.com." : "") + "</p></div>";
   }
 
   function viewPacks() {
@@ -730,6 +800,9 @@
       '<button class="pack" data-act="start-pack" data-pack="legends"><div class="eyebrow">Retired stars · Peak years</div><h3>Legends</h3>' +
       "<p>A curated set of household names from past seasons, graded on peak team, number, and size.</p>" +
       '<div class="stat">' + counts.legends + " retired stars</div></button>" +
+      (CDATA ? '<button class="pack" data-act="start-pack" data-pack="college"><div class="eyebrow">New · Updated weekly</div><h3>College</h3>' +
+        "<p>Starters from SEC, ACC and Big Ten teams in this week’s Top 25. Graded on team, conference, position, class, number, size, and home state.</p>" +
+        '<div class="stat">' + CDATA.counts.pool + " players · " + CDATA.counts.teams + " ranked teams</div></button>" : "") +
       '<p class="legal">Retired players appear only in Legends. Not affiliated with any professional football league or teams.</p></div>';
   }
 
@@ -738,36 +811,40 @@
     const answer = playersById.get(g.answerId);
     const left = g.max - g.guesses.length;
     const hardClass = g.hard ? " hard" : "";
-    const cols = g.hard ? COLS.filter(function (c) { return c !== "team"; }) : COLS;
-    const n = (PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date);
+    const cols = colsFor(g);
+    const isC = g.pack === "college";
+    const n = isC ? collegeNum(g.date) : ((PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date));
+    const colClass = isC ? " college" : hardClass;
     let title = "Unlimited";
-    if (g.mode === "daily") title = "Daily #" + n;
+    if (g.mode === "daily") title = (isC ? "College #" : "Daily #") + n;
     else if (g.mode === "speed") title = "Speed Round";
     else if (g.mode === "passplay") title = "Pass & Play · P" + g.passSeat;
     else if (g.pack === "legends") title = "Legends";
     else if (g.pack === "rookies") title = "Rookies";
+    else if (isC) title = "College";
     let rows = "";
     for (let i = 0; i < g.max; i++) {
       if (i < g.guesses.length) {
         const p = playersById.get(g.guesses[i]);
         const tiles = g.grades[i];
         rows += '<div class="row-block"><div class="who">' + badge(p.team, true) + ' <span class="nm">' + escapeHtml(p.name) +
-          '</span> <span class="num">#' + p.no + "</span></div><div class=\"tiles" + hardClass + '">' +
+          '</span> <span class="num">#' + p.no + "</span></div><div class=\"tiles" + colClass + '">' +
           tiles.map(tileHtml).join("") + "</div></div>";
       } else {
-        rows += '<div class="row-block"><div class="tiles' + hardClass + '">' + cols.map(function () { return '<div class="tile"></div>'; }).join("") + "</div></div>";
+        rows += '<div class="row-block"><div class="tiles' + colClass + '">' + cols.map(function () { return '<div class="tile"></div>'; }).join("") + "</div></div>";
       }
     }
     const painted = g.hints.colors || g.status !== "playing";
     const hintsLine = [];
     if (g.hints.college) hintsLine.push("College: " + (answer.college || "Not listed"));
+    if (g.hints.unit) hintsLine.push("Plays " + (CPOS_UNIT[answer.pos] === "defense" ? "defense" : "offense"));
     if (g.hints.draft) hintsLine.push(answer.udfa ? "Entered the league undrafted." : ("Drafted " + answer.dy + " · Round " + answer.dr + (answer.dp ? " · Pick " + answer.dp : "")));
     let timer = "";
     if (g.mode === "speed" && state.speed) {
       timer = '<span class="timer' + (state.speed.left <= 10 ? " low" : "") + '" data-timer>' + fmtTime(state.speed.left) + "</span>";
     }
     const playing = g.status === "playing";
-    const packLabel = g.pack === "legends" ? "Legends" : g.pack === "rookies" ? "Rookies" : (g.tier[0].toUpperCase() + g.tier.slice(1));
+    const packLabel = isC ? "College" : g.pack === "legends" ? "Legends" : g.pack === "rookies" ? "Rookies" : (g.tier[0].toUpperCase() + g.tier.slice(1));
     let suggest = "";
     if (state.suggest.length) {
       suggest = '<div class="suggest">' + state.suggest.map(function (p, i) {
@@ -787,10 +864,10 @@
       (timer || ('<span class="guesses-left' + (left<=2?" low":"") + '">' + left + " guess" + (left===1?"":"es") + " left</span>")) + "</div>" +
       silhouetteSVG(answer, g.guesses.length + (painted && g.hints.colors ? 2 : 0), painted) +
       (hintsLine.length ? '<p class="legal" style="margin:0 0 8px;color:var(--gold)">' + hintsLine.map(escapeHtml).join(" · ") + "</p>" : "") +
-      '<div class="board-wrap"><div class="cols' + hardClass + '">' + cols.map(function (c) { return "<span>" + COL_LABELS[c] + "</span>"; }).join("") + "</div>" + rows + "</div>" +
+      '<div class="board-wrap"><div class="cols' + colClass + '">' + cols.map(function (c) { return "<span>" + colLabel(g, c) + "</span>"; }).join("") + "</div>" + rows + "</div>" +
       search + '<div class="game-foot"><button class="hints-btn" data-act="hints"' + (playing?"":" disabled") + ">Hints</button>" +
       (g.mode === "speed" && playing ? '<button class="skip" data-act="speed-skip">Skip</button>' : "") +
-      "</div></div>";
+      "</div>" + (isC ? '<p class="legal">Fan project, not affiliated with any league, conference, or school. Data provided by CollegeFootballData.com.</p>' : "") + "</div>";
   }
 
   function tileHtml(t, idx) {
@@ -800,9 +877,9 @@
     const arrow = t.arrow === "up" ? "▲" : t.arrow === "down" ? "▼" : "";
     let inner;
     if (t.col === "team") inner = badge(t.team, true);
-    else if (t.col === "div") inner = escapeHtml(t.text) + '<span class="div-sub">' + escapeHtml(t.sub) + "</span>";
+    else if (t.col === "div" || t.col === "home") inner = escapeHtml(t.text) + '<span class="div-sub">' + escapeHtml(t.sub || "") + "</span>";
     else inner = escapeHtml(t.text);
-    return '<div class="tile filled ' + t.grade + '" aria-label="' + label + '"' + delay + ">" +
+    return '<div class="tile filled ' + t.grade + (t.col === "home" ? " home" : "") + '" aria-label="' + label + '"' + delay + ">" +
       (arrow ? '<span class="arrow" aria-hidden="true">' + arrow + "</span>" : "") +
       inner + '<span class="cue" aria-hidden="true">' + glyph + "</span></div>";
   }
@@ -818,6 +895,17 @@
     const freeReady = g.mode === "daily" && !g.archive && !g.hints.college;
     function cost(used, free) {
       return '<span class="pill-cost ' + (used ? "used" : free ? "free" : "") + '">' + (used ? "Used" : free ? "Free today" : "−1 guess") + "</span>";
+    }
+    if (g.pack === "college") {
+      const unitFree = g.mode === "daily" && !g.archive && !g.hints.unit;
+      return '<div class="overlay" data-act="close-overlay"><div class="sheet" data-stop><div class="handle"></div><h3>Hints</h3>' +
+        '<p class="lead">One free hint per daily. Extra lifelines cost a guess.</p>' +
+        '<button class="hint-row" data-act="use-hint" data-hint="unit"' + (g.hints.unit?" disabled":"") + '><div class="ico">' + icon("people") +
+        "</div><div><h4>Offense or defense</h4><p>" + (g.hints.unit ? (CPOS_UNIT[answer.pos] === "defense" ? "Plays defense." : "Plays offense.") : "Shows which side of the ball, nothing else.") + "</p></div>" +
+        cost(g.hints.unit, unitFree) + "</button>" +
+        '<button class="hint-row" data-act="use-hint" data-hint="colors"' + (g.hints.colors?" disabled":"") + '><div class="ico">' + icon("jersey") +
+        "</div><div><h4>Jersey colors</h4><p>Paints the silhouette in school colors. No likeness.</p></div>" + cost(g.hints.colors, false) + "</button>" +
+        "</div></div>";
     }
     return '<div class="overlay" data-act="close-overlay"><div class="sheet" data-stop><div class="handle"></div><h3>Hints</h3>' +
       '<p class="lead">One free hint per daily. Extra lifelines cost a guess and show on your share card.</p>' +
@@ -849,7 +937,7 @@
     return g.grades.map(function (row) { return row.map(function (t) { return map[t.grade]; }).join(""); }).join("\n");
   }
   function shareHeadline(g) {
-    const n = (PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date);
+    const n = g.pack === "college" ? collegeNum(g.date) : ((PUZZLES[g.date] && PUZZLES[g.date].n) || puzzleNum(g.date));
     const score = g.status === "won" ? (g.guesses.length + "/" + g.max) : ("X/" + g.max);
     const pack = g.pack === "live" ? (g.tier[0].toUpperCase() + g.tier.slice(1)) : (g.pack[0].toUpperCase() + g.pack.slice(1));
     return "Snap Count · " + pack + (g.hard ? " Hard" : "") + " #" + n + " " + score;
@@ -867,7 +955,10 @@
     const s = getStats(g.tier);
     const title = won ? ("Solved in " + g.guesses.length + " · " + (g.tier[0].toUpperCase() + g.tier.slice(1))) : "OUT OF GUESSES";
     let extra = "";
-    if (g.mode === "daily" && !g.archive) {
+    if (g.mode === "daily" && !g.archive && g.pack === "college") {
+      extra += '<p class="streak-line">College streak <b>' + s.streak + "</b> · Best " + s.maxStreak + " · Next puzzle at midnight ET</p>" +
+        '<div class="actions"><button class="btn ghost" data-act="again">Practice College</button><button class="btn ghost" data-go="home">Home</button></div>';
+    } else if (g.mode === "daily" && !g.archive) {
       extra += '<p class="streak-line">Streak <b>' + s.streak + "</b> · Best " + s.maxStreak + " · Next puzzle at midnight ET</p>";
       var lock = window.SnapLB ? SnapLB.getLockSync(g.date, g.tier, g.hard) : null;
       var postBtn = (lock && lock.posted)
@@ -885,15 +976,28 @@
     return '<div class="overlay center" data-act="close-overlay"><div class="card" data-stop><div class="solved">' + escapeHtml(title) + "</div>" +
       '<div class="ident">' + silhouetteSVG(p, 8, true, true).replace('class="sil"', 'class="sil" style="width:72px;height:90px"') +
       "<div><h2>" + escapeHtml(p.name) + "</h2><p>" + escapeHtml(city(p.team)) + " · " + p.pos + " · #" + p.no + "</p></div></div>" +
-      '<dl class="facts"><div><dt>Team</dt><dd>' + escapeHtml(city(p.team)) + "</dd></div><div><dt>Position</dt><dd>" + p.pos +
+      (isCollege(p) ? collegeFacts(p) : ('<dl class="facts"><div><dt>Team</dt><dd>' + escapeHtml(city(p.team)) + "</dd></div><div><dt>Position</dt><dd>" + p.pos +
       "</dd></div><div><dt>College</dt><dd>" + escapeHtml(p.college || "—") + "</dd></div><div><dt>Draft</dt><dd>" +
       (p.udfa ? "UDFA" : (p.dy + " · Round " + p.dr)) + "</dd></div><div><dt>Years</dt><dd>" + p.yoe +
       "</dd></div><div><dt>Height / Wt</dt><dd>" + fmtHt(p.ht) + " · " + p.wt + " lb</dd></div></dl>" +
-      '<p class="factoid">' + escapeHtml(factLine(p)) + "</p>" +
+      '<p class="factoid">' + escapeHtml(factLine(p)) + "</p>")) +
       '<div class="share-box"><div class="cap">Spoiler-free share</div><div style="font-weight:700;margin-bottom:6px">' +
       escapeHtml(shareHeadline(g)) + '</div><pre class="emoji">' + emojiGrid(g) + "</pre></div>" +
       '<div class="actions"><button class="btn gold" data-act="share-image">Share image</button>' +
       '<button class="btn ghost" data-act="copy-grid">Copy grid</button></div>' + extra + "</div></div>";
+  }
+  function collegeFacts(p) {
+    const t = teamInfo(p.team);
+    return '<dl class="facts"><div><dt>School</dt><dd>' + escapeHtml(city(p.team)) + "</dd></div><div><dt>Conference</dt><dd>" + escapeHtml(t ? t.conf : "—") +
+      "</dd></div><div><dt>Position</dt><dd>" + escapeHtml(p.pos) + "</dd></div><div><dt>Class</dt><dd>" + (p.cls ? CLASS_LABELS[p.cls] : "—") +
+      "</dd></div><div><dt>Hometown</dt><dd>" + escapeHtml([p.hc, p.hs].filter(Boolean).join(", ") || "—") +
+      "</dd></div><div><dt>Height / Wt</dt><dd>" + fmtHt(p.ht) + " · " + p.wt + " lb</dd></div></dl>";
+  }
+  function collegeNum(iso) {
+    const row = CPUZZLES[iso];
+    if (row && row.n) return row.n;
+    const a = new Date("2026-11-24T00:00:00Z"), b = new Date(iso + "T00:00:00Z");
+    return Math.floor((b - a) / 86400000) + 1;
   }
   function passSummary() {
     const p = state.pass;
@@ -1146,6 +1250,7 @@
       "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
       "<h3>Difficulty</h3><p>Starters is the default pool: every current depth-chart starter, chosen uniformly at random. Stars is a smaller, more familiar list. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
       "<h3>Packs</h3><p>Rookies uses this season’s first-year players. Legends is a curated set of retired stars, graded on peak team, number, and size. Retired players never appear in the live daily.</p>" +
+      "<h3>College</h3><p>College mode uses starters from SEC, ACC and Big Ten teams ranked in the latest AP Top 25: quarterback, running backs, receivers, tight end, center, and defensive linemen. The list updates weekly with the rankings. Clues: Team, Conference, Position (gold = same side of the ball), Class (FR, SO, JR, SR, GS = fifth year or later, counted from seasons on a college roster; gold within one year), jersey number, height, weight, and Home (green = same hometown, gold = same home state). College data provided by <a href=\"https://collegefootballdata.com\" target=\"_blank\" rel=\"noopener\">CollegeFootballData.com</a>. Not affiliated with any conference or school.</p>" +
       "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
       '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +
       escapeHtml((DATA.asOf || "").replace("T", " ").replace("Z", " UTC")) + ".</p>" +
@@ -1266,6 +1371,17 @@
         return;
       }
       startGame({ mode: "daily", pack: "live", tier: state.tier, hard: state.hardMode, date: etDate() });
+    } else if (act === "play-college") {
+      if (!CDATA) { toast("College data is still loading"); return; }
+      const csaved = loadJSON(dailyKey(etDate(), "college", false, "college"), null);
+      if (csaved && csaved.answerId && playersById.get(csaved.answerId) && csaved.date === etDate()) {
+        state.game = csaved;
+        state.view = "game";
+        state.overlay = csaved.status !== "playing" ? "result" : null;
+        render();
+        return;
+      }
+      startGame({ mode: "daily", pack: "college", tier: "college", hard: false, date: etDate() });
     } else if (act === "packs") {
       state.packPick = btn.getAttribute("data-next");
       state.view = "packs";
@@ -1275,14 +1391,14 @@
       const mode = state.packPick || "unlimited";
       if (mode === "speed") {
         state.speed = { solved: 0, attempts: 0, skipped: 0, left: 60, pack: pack, started: Date.now() };
-        startGame({ mode: "speed", pack: pack, tier: state.tier, hard: state.hardMode });
+        startGame({ mode: "speed", pack: pack, tier: pack === "college" ? "college" : state.tier, hard: state.hardMode });
         startSpeedClock();
       } else if (mode === "passplay") {
         const answer = pickAnswer("unlimited", pack, state.tier, etDate(), state.hardMode);
         state.pass = { p1: null, p2: null, answerId: answer.id, pack: pack, tier: state.tier, hard: state.hardMode };
         startGame({ mode: "passplay", pack: pack, tier: state.tier, hard: state.hardMode, answer: answer, passSeat: 1 });
       } else {
-        startGame({ mode: "unlimited", pack: pack, tier: state.tier, hard: state.hardMode });
+        startGame({ mode: "unlimited", pack: pack, tier: pack === "college" ? "college" : state.tier, hard: state.hardMode });
       }
     } else if (act === "pick") {
       const p = playersById.get(btn.getAttribute("data-id"));
@@ -1301,7 +1417,7 @@
         }
         startGame({ mode: "speed", pack: pack, tier: state.tier, hard: state.hardMode });
       } else if (state.game) {
-        startGame({ mode: state.game.mode === "daily" ? "unlimited" : state.game.mode, pack: state.game.pack, tier: state.game.tier, hard: state.game.hard });
+        startGame({ mode: state.game.mode === "daily" ? "unlimited" : state.game.mode, pack: state.game.pack, tier: state.game.pack === "college" ? "college" : state.game.tier, hard: state.game.hard });
       }
     } else if (act === "leave-game") {
       if (state.game && state.game.mode === "speed") stopSpeedClock();
@@ -1549,6 +1665,23 @@
     }
   });
 
+  function loadCollege() {
+    Promise.all([
+      fetch("./data/college.json").then(function (r) { if (!r.ok) throw new Error("college " + r.status); return r.json(); }),
+      fetch("./data/college-puzzles.json").then(function (r) { return r.ok ? r.json() : {}; })
+    ]).then(function (res) {
+      CDATA = res[0];
+      CPUZZLES = res[1] || {};
+      CDATA.players.forEach(function (p) {
+        if (!p.first) p.first = p.name.split(" ")[0];
+        if (!p.last) p.last = p.name.split(" ").slice(1).join(" ");
+        if (!p.nick) p.nick = [];
+        playersById.set(p.id, p);
+      });
+      if (state.view === "home" || state.view === "packs") render();
+    }).catch(function (e) { console.warn("College data unavailable", e); });
+  }
+
   async function init() {
     try {
       const pack = await Promise.all([
@@ -1558,6 +1691,7 @@
       DATA = pack[0];
       PUZZLES = pack[1];
       playersById = new Map(DATA.players.map(function (p) { return [p.id, p]; }));
+      loadCollege();
       if (window.SnapLB) state.lbGroup = SnapLB.savedGroup();
       render();
       if ("serviceWorker" in navigator) {

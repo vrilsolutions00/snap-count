@@ -1,0 +1,261 @@
+{
+ "_note": "Starting center per SEC/ACC/Big Ten team for Snap Count College mode. CollegeFootballData lists most linemen only as OL, so centers are kept here by hand. Compiled Nov 24, 2026 from public depth charts and the Rimington Trophy watch list. Update a line when a team changes its starting center.",
+ "asOf": "2026-11-24",
+ "teams": {
+  "Alabama": {
+   "name": "Racin Delgatty",
+   "no": 55,
+   "cfbdId": "5152091"
+  },
+  "Arkansas": {
+   "name": "Caden Kitler",
+   "no": 52,
+   "cfbdId": "4833623"
+  },
+  "Auburn": {
+   "name": "Cole Best",
+   "no": 72,
+   "cfbdId": "4690591"
+  },
+  "Boston College": {
+   "name": "DJ Williams",
+   "no": 57,
+   "cfbdId": "5211921"
+  },
+  "California": {
+   "name": "Bastian Swinney",
+   "no": 76,
+   "cfbdId": "4586311"
+  },
+  "Clemson": {
+   "name": "Harris Sewell",
+   "no": 55,
+   "cfbdId": "4870945"
+  },
+  "Duke": {
+   "name": "Matt Craycraft",
+   "no": 72,
+   "cfbdId": "4702899"
+  },
+  "Florida": {
+   "name": "Harrison Moore",
+   "no": 52,
+   "cfbdId": "5079541"
+  },
+  "Florida State": {
+   "name": "Bradyn Welch-Joiner",
+   "no": 55,
+   "cfbdId": "4870817"
+  },
+  "Georgia": {
+   "name": "Cortez Smith",
+   "no": 50,
+   "cfbdId": "5141699"
+  },
+  "Georgia Tech": {
+   "name": "Jameson Riggs",
+   "no": 70,
+   "cfbdId": "5079581"
+  },
+  "Illinois": {
+   "name": "Jake Renfro",
+   "no": 59,
+   "cfbdId": "4575844"
+  },
+  "Indiana": {
+   "name": "Bray Lynch",
+   "no": 74,
+   "cfbdId": "4833364"
+  },
+  "Iowa": {
+   "name": "Cael Winter",
+   "no": 61,
+   "cfbdId": "5150661"
+  },
+  "Kentucky": {
+   "name": "Coleton Price",
+   "no": 72,
+   "cfbdId": "4720942"
+  },
+  "LSU": {
+   "name": "Braelin Moore",
+   "no": 61,
+   "cfbdId": "4735845"
+  },
+  "Louisville": {
+   "name": "Lance Robinson",
+   "no": 53,
+   "cfbdId": "4576120"
+  },
+  "Maryland": {
+   "name": "Michael Hershey",
+   "no": 61,
+   "cfbdId": "5147854"
+  },
+  "Miami": {
+   "name": "Ryan Rodriguez",
+   "no": 76,
+   "cfbdId": "4682510"
+  },
+  "Michigan": {
+   "name": "Jake Guarnera",
+   "no": 53,
+   "cfbdId": "5079452"
+  },
+  "Michigan State": {
+   "name": "Trent Fraley",
+   "no": 63,
+   "cfbdId": "4880352"
+  },
+  "Minnesota": {
+   "name": "Greg Johnson",
+   "no": 65,
+   "cfbdId": "5090565"
+  },
+  "Mississippi State": {
+   "name": "Canon Boone",
+   "no": 72,
+   "cfbdId": "4688755"
+  },
+  "Missouri": {
+   "name": "Dominick Giudice",
+   "no": 56,
+   "cfbdId": "4682698"
+  },
+  "NC State": {
+   "name": "Daniel Cruz",
+   "no": 50,
+   "cfbdId": "5110445"
+  },
+  "Nebraska": {
+   "name": "Justin Evans",
+   "no": 51,
+   "cfbdId": "4832033"
+  },
+  "North Carolina": {
+   "name": "Christo Kelly",
+   "no": 56,
+   "cfbdId": "4695891"
+  },
+  "Northwestern": {
+   "name": "Jackson Carsello",
+   "no": 65,
+   "cfbdId": "4684277"
+  },
+  "Ohio State": {
+   "name": "Carson Hinzman",
+   "no": 75,
+   "cfbdId": "4685384"
+  },
+  "Oklahoma": {
+   "name": "Jake Maikkula",
+   "no": 69,
+   "cfbdId": "4816324"
+  },
+  "Ole Miss": {
+   "name": "Brycen Sanders",
+   "no": 62,
+   "cfbdId": "4870987"
+  },
+  "Oregon": {
+   "name": "Iapani Laloulu",
+   "no": 72,
+   "cfbdId": "4870845"
+  },
+  "Penn State": {
+   "name": "Brock Riker",
+   "no": 51,
+   "cfbdId": "5171684"
+  },
+  "Pittsburgh": {
+   "name": "Ryan Carretta",
+   "no": 71,
+   "cfbdId": "4921230"
+  },
+  "Purdue": {
+   "name": "Boaz Stanley",
+   "no": 50,
+   "cfbdId": "5151538"
+  },
+  "Rutgers": {
+   "name": "Terrence Salami",
+   "no": 73,
+   "cfbdId": "4880467"
+  },
+  "SMU": {
+   "name": "Joshua Bates",
+   "no": 64,
+   "cfbdId": "4880599"
+  },
+  "South Carolina": {
+   "name": "Nolan Hay",
+   "no": 62,
+   "cfbdId": "5084824"
+  },
+  "Stanford": {
+   "name": "Fisher Anderson",
+   "no": 74,
+   "cfbdId": "4685251"
+  },
+  "Syracuse": {
+   "name": "Kahlil Stewart",
+   "no": 50,
+   "cfbdId": "5141700"
+  },
+  "Tennessee": {
+   "name": "Sam Pendleton",
+   "no": 56,
+   "cfbdId": "4917982"
+  },
+  "Texas": {
+   "name": "Connor Robertson",
+   "no": 62,
+   "cfbdId": "4806290"
+  },
+  "Texas A&M": {
+   "name": "Mark Nabou Jr.",
+   "no": 54,
+   "cfbdId": "4832816"
+  },
+  "UCLA": {
+   "name": "Riley Robell",
+   "no": 51,
+   "cfbdId": "5092420"
+  },
+  "USC": {
+   "name": "Tobias Raymond",
+   "no": 73,
+   "cfbdId": "5076127"
+  },
+  "Vanderbilt": {
+   "name": "Clinton Azubuike",
+   "no": 51,
+   "cfbdId": "5225447"
+  },
+  "Virginia": {
+   "name": "Drake Metcalf",
+   "no": 60,
+   "cfbdId": "4430420"
+  },
+  "Virginia Tech": {
+   "name": "Kyle Altuner",
+   "no": 62,
+   "cfbdId": "5079293"
+  },
+  "Wake Forest": {
+   "name": "Will Way",
+   "no": 70,
+   "cfbdId": "5153695"
+  },
+  "Washington": {
+   "name": "Kolt Dieterich",
+   "no": 55,
+   "cfbdId": "5075389"
+  },
+  "Wisconsin": {
+   "name": "Austin Kawecki",
+   "no": 51,
+   "cfbdId": "4833363"
+  }
+ }
+}

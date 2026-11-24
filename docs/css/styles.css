@@ -946,3 +946,33 @@ html.cb .tile.close .cue { background: rgba(48, 20, 0, 0.55); color: #FFF1E0; }
   border-top: 1px solid rgba(200, 255, 0, 0.22);
 }
 .sheet.lb-sheet h3 { font-family: var(--font-d); letter-spacing: 0.05em; }
+
+/* College mode */
+.cols.college,
+.tiles.college { grid-template-columns: repeat(8, 1fr); }
+.mode .new-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #111200;
+  font-family: var(--font-b);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  vertical-align: 2px;
+  text-transform: uppercase;
+}
+.mode.college-new { border-color: rgba(200, 255, 0, 0.28); }
+.tile.home { font-size: 11px; padding: 6px 1px 8px; overflow: hidden; }
+.tile.home .div-sub {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  font-size: 7px;
+  line-height: 1.1;
+  padding: 0 1px;
+}
