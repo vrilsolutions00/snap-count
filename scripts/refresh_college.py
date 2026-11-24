@@ -2,10 +2,10 @@
 """Weekly College-mode refresh for Snap Count.
 
 Pool: the top 100 college players nationwide (any FBS team), at QB, RB, WR,
-TE and DL (no centers). Players are ranked by this season's production on a
+TE and DL (no centers). Players are scored by this season's production on a
 robust within-position z-score, then the top N at each position are kept so
-the mix stays balanced: 15 QB, 20 RB, 30 WR, 12 TE, 23 DL. Team Rank uses
-CFBD SP+ (SRS if SP+ is unavailable) so every FBS team has a number.
+the mix stays balanced: 15 QB, 20 RB, 30 WR, 12 TE, 23 DL. Rank is each
+player's place in that top 100 (#1-#100) by the same production score.
 Stats from CollegeFootballData.com (CFBD).
 
 Usage:
@@ -14,8 +14,7 @@ Usage:
 The API key is read from $CFBD_API_KEY or the file in $CFBD_KEY_FILE
 (default /workspace/snapcount-secrets/cfbd.txt). It is never written anywhere.
 
-Weekly API calls: 4 (teams, roster, season stats, SP+ ratings). SRS is
-fetched only if SP+ is unavailable that week (one extra call). The first run
+Weekly API calls: 3 (teams, roster, season stats). The first run
 on a fresh box also caches past rosters (2021-2025) and the recruiting class
 used to work out class years: 6 more calls, once. Cache: $CFBD_CACHE_DIR
 (default /workspace/snapcount-college-cache). Past seasons never change, so
@@ -155,39 +154,6 @@ def to_int(v):
         return None
 
 
-def parse_ratings(rows: list) -> dict[str, int]:
-    usable = []
-    for row in rows or []:
-        team = row.get("team")
-        if not team or team == "nationalAverages":
-            continue
-        usable.append(row)
-    official = {row["team"]: to_int(row.get("ranking")) for row in usable}
-    if all(v is not None for v in official.values()) and official:
-        return official
-    def rating_val(row):
-        try:
-            return float(row.get("rating"))
-        except (TypeError, ValueError):
-            return None
-    scored = [(rating_val(row), row["team"]) for row in usable]
-    scored = [x for x in scored if x[0] is not None]
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return {team: i + 1 for i, (_r, team) in enumerate(scored)}
-
-
-def load_ratings(cache: Path, key: str, season: int) -> tuple[str, dict[str, int]]:
-    sp = fetch("/ratings/sp", {"year": season}, cache, f"ratings-sp-{season}.json", False, key, optional=True)
-    ranks = parse_ratings(sp) if sp else {}
-    if ranks:
-        return "SP+", ranks
-    srs = fetch("/ratings/srs", {"year": season}, cache, f"ratings-srs-{season}.json", False, key, optional=True)
-    ranks = parse_ratings(srs) if srs else {}
-    if ranks:
-        return "SRS", ranks
-    sys.exit("Validation failed: no SP+ or SRS ratings available")
-
-
 def player_id(p) -> str:
     return "cfb-" + str(p["id"])
 
@@ -203,7 +169,6 @@ def main() -> int:
     teams = fetch("/teams/fbs", {"year": season}, cache, f"teams-{season}.json", False, key)
     roster = fetch("/roster", {"year": season, "classification": "fbs"}, cache, f"roster-{season}.json", False, key)
     stats = stat_table(fetch("/stats/player/season", {"year": season}, cache, f"stats-{season}.json", False, key))
-    rating_name, rating_ranks = load_ratings(cache, key, season)
     first_seen, recruit_ids = class_years(cache, key, season)
 
     def usable(p):
@@ -262,7 +227,6 @@ def main() -> int:
         team_meta[tkey] = {
             "abbr": tkey, "display": abbr, "city": school, "conf": conf_abbr(t.get("conference")),
             "c1": t.get("color") or "#444444", "c2": t.get("alternateColor") or "#999999",
-            "rank": rating_ranks.get(school),
         }
 
     candidates = []
@@ -372,19 +336,39 @@ def main() -> int:
     pool_n = len(players)
     if pool_n != POOL_SIZE:
         sys.exit(f"Validation failed: pool size {pool_n} != {POOL_SIZE}")
+
+    score_by_id = {player_id(row[3]): (row[0], row[1]) for row in scored}
+
+    def rank_key(p):
+        z, raw = score_by_id.get(p["id"], (float("-inf"), float("-inf")))
+        return (-z, -raw, p["id"])
+
+    players.sort(key=rank_key)
+    for i, rec in enumerate(players, 1):
+        rec["rank"] = i
+    if [rec["rank"] for rec in players] != list(range(1, POOL_SIZE + 1)):
+        sys.exit("Validation failed: player ranks are not 1-100")
+
     eligible = sorted(p["id"] for p in players if p.get("cls"))
     if len(eligible) < 30:
         sys.exit(f"Validation failed: only {len(eligible)} answer-eligible players")
 
+    def team_record(tkey):
+        if tkey in team_meta:
+            return dict(team_meta[tkey])
+        if tkey in old.get("teams", {}):
+            t = dict(old["teams"][tkey])
+            t.pop("rank", None)
+            return t
+        return None
+
     team_out = {}
     for p in players:
         tkey = p["team"]
-        if tkey in team_meta:
-            team_out[tkey] = dict(team_meta[tkey])
-        elif tkey in old.get("teams", {}):
-            team_out[tkey] = dict(old["teams"][tkey])
-        if team_out.get(tkey, {}).get("rank") is None:
-            sys.exit(f"Validation failed: pool team {tkey} has no rating rank")
+        rec_t = team_record(tkey)
+        if rec_t is None:
+            sys.exit(f"Validation failed: missing team {tkey}")
+        team_out[tkey] = rec_t
 
     pool_teams = len({p["team"] for p in players})
     if pool_teams < MIN_TEAMS:
@@ -423,16 +407,13 @@ def main() -> int:
         if rec is None:
             sys.exit(f"Validation failed: served answer {pid} missing from previous college.json")
         rec = dict(rec, pool=False)
+        rec.pop("rank", None)
         players.append(rec)
         if rec["team"] not in team_out:
-            if rec["team"] in team_meta:
-                team_out[rec["team"]] = dict(team_meta[rec["team"]])
-            elif rec["team"] in old.get("teams", {}):
-                t = dict(old["teams"][rec["team"]])
-                if rec["team"] in team_meta and team_meta[rec["team"]].get("rank") is not None:
-                    t["rank"] = team_meta[rec["team"]]["rank"]
-                    t["conf"] = team_meta[rec["team"]]["conf"]
-                team_out[rec["team"]] = t
+            t = team_record(rec["team"])
+            if t is None:
+                sys.exit(f"Validation failed: missing team {rec['team']} for a past answer")
+            team_out[rec["team"]] = t
 
     by_pos = {}
     by_conf = {}
@@ -443,7 +424,6 @@ def main() -> int:
             by_conf[conf] = by_conf.get(conf, 0) + 1
     payload = {
         "season": season,
-        "rating": rating_name,
         "asOf": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "attribution": "Data provided by CollegeFootballData.com",
         "teams": team_out, "players": players,
@@ -459,11 +439,11 @@ def main() -> int:
             tmp.write_text(json.dumps(obj, separators=(",", ":"), ensure_ascii=False))
             tmp.replace(out / name)
     print(json.dumps({
-        "season": season, "rating": rating_name,
+        "season": season,
         "counts": payload["counts"],
+        "playerRanks": "1-100",
         "todayInPool": bool(today_id and today_id in pool_ids),
         "retainedPastAnswers": len(needed),
-        "ratedTeams": len(rating_ranks),
         "apiCalls": CALLS, "warnings": warnings,
     }, indent=2))
     return 0
