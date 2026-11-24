@@ -623,6 +623,15 @@ def build(cache_dir: Path | None = None) -> dict:
             rewritten += 1
         d += dt.timedelta(days=1)
 
+    prev_counts = None
+    existing = DATA / "players.json"
+    if existing.exists():
+        try:
+            prev_counts = json.loads(existing.read_text()).get("counts")
+        except Exception:
+            prev_counts = None
+    validate_counts(payload["counts"], prev_counts if isinstance(prev_counts, dict) else None)
+
     DATA.mkdir(parents=True, exist_ok=True)
     tmp = DATA / "players.json.tmp"
     tmp.write_text(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
@@ -641,6 +650,37 @@ def build(cache_dir: Path | None = None) -> dict:
     if synced is not None:
         print(json.dumps({"dailyAnswersSynced": synced}, indent=2))
     return payload
+
+
+
+def validate_counts(counts: dict, previous: dict | None) -> None:
+    """Fail the refresh if pool sizes look broken.
+
+    Stars is a fixed top-100 list (STAR_POOL_SIZE). A drop from a legacy
+    larger Stars list down to exactly 100 is expected and must pass.
+    """
+    errors = []
+    stars = int(counts.get("stars") or 0)
+    if stars != STAR_POOL_SIZE:
+        errors.append(f"stars is {stars}, expected exactly {STAR_POOL_SIZE}")
+    full = int(counts.get("full") or 0)
+    if not (1700 <= full <= 2500):
+        errors.append(f"full roster {full} is outside 1700-2500")
+    starters = int(counts.get("starters") or 0)
+    if not (400 <= starters <= 800):
+        errors.append(f"starters {starters} is outside 400-800")
+    if previous:
+        for key, limit in (("full", 0.15), ("starters", 0.15), ("rookies", 0.25)):
+            old = int(previous.get(key) or 0)
+            new = int(counts.get(key) or 0)
+            if old and new and abs(new - old) / old > limit:
+                errors.append(f"{key} changed from {old} to {new}")
+        old_stars = int(previous.get("stars") or 0)
+        new_stars = int(counts.get("stars") or 0)
+        if old_stars and new_stars != STAR_POOL_SIZE:
+            errors.append(f"stars changed from {old_stars} to {new_stars}")
+    if errors:
+        raise SystemExit("Roster validation failed: " + "; ".join(errors))
 
 
 def sync_daily_answers(puzzles: dict) -> dict | None:
