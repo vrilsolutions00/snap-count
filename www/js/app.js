@@ -132,7 +132,7 @@
       if (gv == null || av == null) return { col: col, grade: "miss", text: gv == null ? "—" : "#" + gv, arrow: "", hint: "" };
       const abs = Math.abs(gv - av);
       const arrow = abs === 0 ? "" : (av < gv ? "up" : "down");
-      return { col: col, grade: abs === 0 ? "exact" : abs <= CCLOSE.rank ? "close" : "miss", text: "#" + gv, arrow: arrow, hint: abs === 0 ? "SAME" : (arrow === "up" ? "HIGHER" : "LOWER") };
+      return { col: col, grade: abs === 0 ? "exact" : abs <= CCLOSE.rank ? "close" : "miss", text: "#" + gv, arrow: arrow };
     }
     if (col === "pos") {
       const grade = g.pos === a.pos ? "exact" : (CPOS_UNIT[g.pos] && CPOS_UNIT[g.pos] === CPOS_UNIT[a.pos] ? "close" : "miss");
@@ -771,7 +771,7 @@
       '<button class="mode primary" data-act="play-daily"><div class="mi">' + icon("cal") + "</div><div><h2>Daily</h2><p>" +
       escapeHtml(shortDate(date)) + " · Puzzle #" + n + " · Midnight ET</p></div><span class=\"chev\">›</span></button>" +
       (CDATA ? '<button class="mode college-new" data-act="play-college"><div class="mi">' + icon("school") +
-        '</div><div><h2>College <span class="new-pill">New</span></h2><p>Top 100 players from SEC, ACC &amp; Big Ten Top 25 teams · Conference and team clues</p></div><span class="chev">›</span></button>' : "") +
+        '</div><div><h2>College <span class="new-pill">New</span></h2><p>Top 100 college players · Conference and team clues</p></div><span class="chev">›</span></button>' : "") +
       '<button class="mode" data-act="packs" data-next="unlimited"><div class="mi">' + icon("infinite") +
       '</div><div><h2>Unlimited</h2><p>Practice any pack — no streak risk</p></div><span class="chev">›</span></button>' +
       '<button class="mode" data-act="packs" data-next="passplay"><div class="mi">' + icon("people") +
@@ -808,8 +808,8 @@
       "<p>A curated set of household names from past seasons, graded on peak team, number, and size.</p>" +
       '<div class="stat">' + counts.legends + " retired stars</div></button>" +
       (CDATA ? '<button class="pack" data-act="start-pack" data-pack="college"><div class="eyebrow">New · Updated weekly</div><h3>College</h3>' +
-        "<p>The top 100 players from SEC, ACC and Big Ten teams in this week’s Top 25. Graded on team, conference, position, class, number, size, and home state.</p>" +
-        '<div class="stat">' + CDATA.counts.pool + " players · " + CDATA.counts.teams + " ranked teams</div></button>" : "") +
+        "<p>The top 100 college players nationwide, from any FBS team. Graded on team, conference, rank, position, class, number, size, and home state.</p>" +
+        '<div class="stat">' + CDATA.counts.pool + " players · " + CDATA.counts.teams + " teams</div></button>" : "") +
       '<p class="legal">Retired players appear only in Legends. Not affiliated with any professional football league or teams.</p></div>';
   }
 
@@ -882,21 +882,19 @@
     const label = t.grade === "exact" ? "Exact match" : t.grade === "close" ? "Close" : "Miss";
     const delay = ' style="animation-delay:' + (idx * 70) + 'ms"';
     const arrow = t.arrow === "up" ? "▲" : t.arrow === "down" ? "▼" : "";
+    let aria = label;
     if (t.col === "rank") {
-      const hint = t.hint || (t.arrow === "up" ? "HIGHER" : t.arrow === "down" ? "LOWER" : (t.grade === "exact" ? "SAME" : ""));
-      const aria = t.grade === "exact" ? "Exact match, same AP rank" : (label + (hint ? ", answer ranked " + hint.toLowerCase() : ""));
-      return '<div class="tile filled ' + t.grade + ' rank" aria-label="' + aria + '"' + delay + ">" +
-        (arrow ? '<span class="rank-dir" aria-hidden="true">' + arrow + "</span>" : "") +
-        '<span class="rank-no">' + escapeHtml(t.text) + "</span>" +
-        (hint ? '<span class="rank-hint">' + hint + "</span>" : "") +
-        '<span class="cue" aria-hidden="true">' + glyph + "</span></div>";
+      if (t.grade === "exact") aria = "Exact match, same rank";
+      else if (t.arrow === "up") aria = label + ", answer ranked higher";
+      else if (t.arrow === "down") aria = label + ", answer ranked lower";
     }
     let inner;
     if (t.col === "team") inner = badge(t.team, true);
     else if (t.col === "div" || t.col === "home") inner = escapeHtml(t.text) + '<span class="div-sub">' + escapeHtml(t.sub || "") + "</span>";
     else inner = escapeHtml(t.text);
-    return '<div class="tile filled ' + t.grade + (t.col === "home" ? " home" : "") + '" aria-label="' + label + '"' + delay + ">" +
-      (arrow ? '<span class="arrow" aria-hidden="true">' + arrow + "</span>" : "") +
+    const extra = (t.col === "home" ? " home" : "") + (t.col === "rank" ? " rank" : "");
+    return '<div class="tile filled ' + t.grade + extra + '" aria-label="' + aria + '"' + delay + ">" +
+      (arrow ? '<span class="arrow ' + t.arrow + '" aria-hidden="true">' + arrow + "</span>" : "") +
       inner + '<span class="cue" aria-hidden="true">' + glyph + "</span></div>";
   }
 
@@ -1258,15 +1256,15 @@
       '</button><div class="top-title">How to play</div><div style="width:40px"></div></div>' +
       '<div class="page-title"><h1>Find the player</h1><p>You get eight guesses (ten in Hard). Each guess scores nine clues.</p></div>' +
       "<h3>Colors</h3><ul><li><span class=\"swatch\" style=\"background:var(--exact)\"></span> Green — exact match</li>" +
-      '<li><span class="swatch" style="background:var(--close)"></span> Gold — close (same conference; same unit for position; height / age / years / draft year within 2; jersey number within 5; weight within 10 lb)</li>' +
+      '<li><span class="swatch" style="background:var(--close)"></span> Gold — close (same conference; same unit for position; College Rank within 3; height / age / years / draft year within 2; jersey number within 5; weight within 10 lb)</li>' +
       '<li><span class="swatch" style="background:var(--miss)"></span> Gray — not close</li></ul>' +
-      "<p>Every graded tile also has a small badge: ✓ exact, ~ close, – miss.</p>" +
+      "<p>In Colorblind mode, every graded tile also has a small mark: ✓ exact, ~ close, – miss.</p>" +
       "<h3>Position</h3><p>Green is the exact position. Gold means a different position on the same unit: offense (QB, RB, WR, TE, OL), defense (DL, LB, DB), or special teams (K, P, LS). Gray means a different unit.</p>" +
-      "<h3>Arrows</h3><p>On number clues, ▲ means the answer is higher and ▼ means the answer is lower. On the College Rank column, the tile shows a big arrow and HIGHER, LOWER, or SAME: HIGHER means the answer’s team is closer to #1, LOWER means it is further from #1, and SAME is an exact match.</p>" +
+      "<h3>Arrows</h3><p>Plain arrows sit in the top-right corner of a tile, with no box: a blue ▲ means the answer is higher and a red ▼ means the answer is lower. On the College Rank column, a blue ▲ means the answer’s team is ranked higher (closer to #1) and a red ▼ means it is ranked lower.</p>" +
       "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
       "<h3>Difficulty</h3><p>Starters is the default pool: every current depth-chart starter, chosen uniformly at random. Stars is a smaller, more familiar list. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
       "<h3>Packs</h3><p>Rookies uses this season’s first-year players. Legends is a curated set of retired stars, graded on peak team, number, and size. Retired players never appear in the live daily.</p>" +
-      "<h3>College</h3><p>College mode uses the top 100 players from SEC, ACC and Big Ten teams ranked in the latest AP Top 25: quarterbacks, running backs, receivers, tight ends, and defensive linemen. The list updates weekly with the rankings. Clues: Team, Conference, Rank (the team’s AP rank, shown with HIGHER / LOWER / SAME; gold within 3 spots; HIGHER means the answer’s team is closer to #1), Position (gold = same side of the ball), Class (FR, SO, JR, SR, GS = fifth year or later, counted from seasons on a college roster; gold within one year), jersey number, height, weight, and Home (green = same hometown, gold = same home state). College data provided by <a href=\"https://collegefootballdata.com\" target=\"_blank\" rel=\"noopener\">CollegeFootballData.com</a>. Not affiliated with any conference or school.</p>" +
+      "<h3>College</h3><p>College mode uses the top 100 college players nationwide: quarterbacks, running backs, receivers, tight ends, and defensive linemen from any FBS team, updated weekly. The mix is capped by position (15 QB, 20 RB, 30 WR, 12 TE, 23 DL). Clues: Team, Conference, Rank (each team’s SP+ ranking, so every FBS team has a number, shown as #N; gold within 3 spots; a blue ▲ means the answer’s team is closer to #1, a red ▼ means it is ranked lower), Position (gold = same side of the ball), Class (FR, SO, JR, SR, GS = fifth year or later, counted from seasons on a college roster; gold within one year), jersey number, height, weight, and Home (green = same hometown, gold = same home state). College data provided by <a href=\"https://collegefootballdata.com\" target=\"_blank\" rel=\"noopener\">CollegeFootballData.com</a>. Not affiliated with any conference or school.</p>" +
       "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
       '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +
       escapeHtml((DATA.asOf || "").replace("T", " ").replace("Z", " UTC")) + ".</p>" +
