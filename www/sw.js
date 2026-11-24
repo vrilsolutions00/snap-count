@@ -1,4 +1,4 @@
-const CACHE = "sc-v12";
+const CACHE = "sc-v13";
 const SHELL = [
   "./",
   "./index.html",
@@ -19,7 +19,14 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE).then((c) => Promise.all(SHELL.map((url) =>
+      fetch(new Request(url, { cache: "reload" })).then((res) => {
+        if (!res.ok) throw new Error("shell " + url + " " + res.status);
+        return c.put(url, res);
+      })
+    ))).then(() => self.skipWaiting())
+  );
 });
 self.addEventListener("activate", (e) => {
   e.waitUntil(
