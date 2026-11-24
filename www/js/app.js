@@ -30,11 +30,16 @@
   let CDATA = null;
   let CPUZZLES = {};
   let playersById = new Map();
+  function loadSavedLeague() {
+    const v = loadJSON("gg:league", null);
+    return (v === "nfl" || v === "college") ? v : null;
+  }
   const state = {
-    view: "home",
+    league: loadSavedLeague(),
+    view: loadSavedLeague() ? "home" : "league",
     tier: loadJSON("gg:tier", "starters"),
     hardMode: loadJSON("gg:hard", false),
-    settings: loadJSON("gg:settings", { sound: true, haptics: true, colorblind: false }),
+    settings: loadJSON("gg:settings", { sound: false, haptics: true, colorblind: false }),
     game: null,
     overlay: null,
     search: "",
@@ -692,9 +697,24 @@
       search: '<circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
       school: '<path d="M3 10l9-6 9 6-9 6-9-6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12v5c2 1.5 5 2 5 2s3-.5 5-2v-5" fill="none" stroke="currentColor" stroke-width="2"/>',
       draft: '<rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      sound: '<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      mute: '<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
       jersey: '<path d="M8 4l2 2h4l2-2 3 2-2 4v10H7V10L5 6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
     };
     return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (paths[name] || "") + "</svg>";
+  }
+
+  function leagueChip(inGame) {
+    const isC = state.league === "college";
+    return '<button class="league-chip' + (inGame ? " in-game" : "") + '" data-act="switch-league" aria-label="Switch league, now ' + (isC ? "College" : "NFL") + '">' +
+      '<span class="lc-dot ' + (isC ? "c" : "n") + '"></span>' + (isC ? "College" : "NFL") + ' <span class="lc-sw">⇄</span></button>';
+  }
+  function soundBtn() {
+    const on = !!(state.settings && state.settings.sound);
+    return '<button class="ico sound-btn' + (on ? " on" : "") + '" data-act="toggle-sound" aria-pressed="' + on + '" aria-label="Sound ' + (on ? "on" : "off") + '">' + icon(on ? "sound" : "mute") + "</button>";
+  }
+  function topActions(extra) {
+    return '<div class="top-actions">' + leagueChip() + soundBtn() + (extra || "") + "</div>";
   }
 
   function badge(abbr, small) {
@@ -765,7 +785,8 @@
     if (state.settings.colorblind) document.documentElement.classList.add("cb");
     else document.documentElement.classList.remove("cb");
     let html = "";
-    if (state.view === "home") html = viewHome();
+    if (state.view === "league") html = viewLeague();
+    else if (state.view === "home") html = state.league === "college" ? viewHomeCollege() : viewHome();
     else if (state.view === "packs") html = viewPacks();
     else if (state.view === "game") html = viewGame();
     else if (state.view === "stats") html = viewStats();
@@ -774,7 +795,7 @@
     else if (state.view === "groups") html = viewGroups();
     else if (state.view === "how") html = viewHow();
     else if (state.view === "settings") html = viewSettings();
-    else html = viewHome();
+    else html = state.league ? (state.league === "college" ? viewHomeCollege() : viewHome()) : viewLeague();
     if (state.overlay === "hints") html += sheetHints();
     if (state.overlay === "remain") html += sheetRemain();
     if (state.overlay === "post-score") html += modalPostScore();
@@ -783,25 +804,64 @@
     if (state.overlay === "pass-ready") html += modalPassReady();
     if (state.overlay === "speed-end") html += modalSpeedEnd();
     if (state.toast) html += '<div class="toast">' + escapeHtml(state.toast) + "</div>";
+    const lgC = state.view === "game" && state.game ? state.game.pack === "college" : state.league === "college";
+    root.className = state.view === "league" ? "lg-pick" : (lgC ? "lg-cfb" : "lg-nfl");
     root.innerHTML = html;
     bind();
+    const bw = root.querySelector(".game-screen .board-wrap");
+    if (bw && state.game) {
+      const rb = bw.querySelectorAll(".row-block");
+      const last = rb[Math.max(0, state.game.guesses.length - 1)];
+      if (last && state.game.guesses.length > 3) bw.scrollTop = last.offsetTop - bw.offsetTop - bw.clientHeight + last.offsetHeight + 60;
+    }
+  }
+
+  function viewLeague() {
+    const date = etDate();
+    const n = (PUZZLES[date] && PUZZLES[date].n) || puzzleNum(date);
+    const nflLogos = [["KC","Kansas City"],["PHI","Philadelphia"],["DAL","Dallas"]].map(function (a) {
+      return '<img src="./logos/nfl/' + a[0] + '-dark.png" alt="' + a[1] + '">';
+    }).join("");
+    const cfbLogos = [["OSU","Ohio State"],["TEX","Texas"],["ORE","Oregon"]].map(function (a) {
+      return '<img src="./logos/ncaa/' + a[0] + '.png" alt="' + a[1] + '">';
+    }).join("");
+    const shield = '<svg class="lp-badge" viewBox="0 0 120 140" aria-hidden="true"><defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E0FF4A"/><stop offset="1" stop-color="#9BC400"/></linearGradient></defs>' +
+      '<path d="M60 4c16 9 34 12 54 10v52c0 36-25 58-54 70C31 124 6 102 6 66V14c20 2 38-1 54-10z" fill="#0B0B0D" stroke="url(#sg)" stroke-width="5"/>' +
+      '<path d="M18 44h84" stroke="#C8FF00" stroke-width="2" opacity=".5"/>' +
+      '<g fill="#C8FF00">' + [30,46,60,74,90].map(function (x) { return '<path transform="translate(' + x + ' 30) scale(.55)" d="M0-9l2.6 6.2 6.6.5-5 4.3 1.6 6.5L0 5l-5.8 3.5 1.6-6.5-5-4.3 6.6-.5z"/>'; }).join("") + '</g>' +
+      '<text x="60" y="92" text-anchor="middle" font-family="Oswald, sans-serif" font-weight="700" font-size="38" fill="#fff" letter-spacing="1">NFL</text>' +
+      '<path d="M40 108h40" stroke="#C8FF00" stroke-width="3" stroke-linecap="round"/></svg>';
+    const crest = '<svg class="lp-badge" viewBox="0 0 120 140" aria-hidden="true"><defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFB37A"/><stop offset="1" stop-color="#E8661C"/></linearGradient></defs>' +
+      '<circle cx="60" cy="70" r="54" fill="#0B0B0D" stroke="url(#cg)" stroke-width="5"/><circle cx="60" cy="70" r="44" fill="none" stroke="#FF8A3D" stroke-width="1.5" opacity=".6"/>' +
+      '<ellipse cx="60" cy="50" rx="20" ry="11" fill="#7A3B12" stroke="#FFB37A" stroke-width="2"/><path d="M50 50h20M55 46v8M60 46v8M65 46v8" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>' +
+      '<text x="60" y="88" text-anchor="middle" font-family="Oswald, sans-serif" font-weight="700" font-size="17" fill="#fff" letter-spacing="1.5">COLLEGE</text>' +
+      '<text x="60" y="104" text-anchor="middle" font-family="Oswald, sans-serif" font-weight="600" font-size="9" fill="#FFB37A" letter-spacing="2.5">TOP 100</text></svg>';
+    return '<div class="screen league-screen lp"><div class="lp-lights" aria-hidden="true"></div><div class="lp-field" aria-hidden="true"></div>' +
+      '<div class="top"><div class="ico mark">S</div><div class="top-actions">' + soundBtn() +
+      '<button class="ico" data-go="how" aria-label="How to play">' + icon("info") + "</button></div></div>" +
+      '<h1 class="logo lp-title">Snap <span>Count</span></h1>' +
+      '<p class="lp-sub">Choose your side</p>' +
+      '<div class="lp-duel">' +
+      '<button class="lp-card nfl" data-act="pick-league" data-league="nfl" aria-label="Play NFL">' + shield +
+      '<div class="lp-name">NFL</div><div class="lp-meta">Daily #' + n + '<br>4 modes · 3 packs</div><div class="lp-logos">' + nflLogos + '</div><span class="lp-go">Play ›</span></button>' +
+      '<button class="lp-card cfb" data-act="pick-league" data-league="college" aria-label="Play College"><span class="lp-new">New</span>' + crest +
+      '<div class="lp-name">College</div><div class="lp-meta">Top 100 players<br>4 modes</div><div class="lp-logos">' + cfbLogos + '</div><span class="lp-go">Play ›</span></button>' +
+      '</div><p class="lp-hint">Switch leagues any time with the button at the top.</p>' +
+      '<p class="legal lp-legal">Fan project, not affiliated with any league, conference, school, or team.</p></div>';
   }
 
   function viewHome() {
     const date = etDate();
     const n = (PUZZLES[date] && PUZZLES[date].n) || puzzleNum(date);
-    return '<div class="screen"><div class="top"><div class="ico mark">S</div><div class="top-actions">' +
+    return '<div class="screen lp menu-screen"><div class="lp-lights" aria-hidden="true"></div><div class="lp-field" aria-hidden="true"></div><div class="top">' + leagueChip() + '<div class="top-actions">' + soundBtn() +
       '<button class="ico" data-go="how" aria-label="How to play">' + icon("info") + "</button>" +
       '<button class="ico" data-go="settings" aria-label="Settings">' + icon("gear") + "</button></div></div>" +
-      '<div class="kicker">Daily player puzzle</div>' +
-      '<h1 class="logo">Snap<br><span>Count</span></h1>' +
-      '<p class="tag">Eight guesses. Nine clues. One player.</p><div class="modes">' +
+      '<div class="league-head"><div class="kicker">NFL · Daily player puzzle</div><h1 class="logo sm">Snap <span>Count</span></h1></div>' +
+      '<div class="modes">' +
       '<button class="mode primary" data-act="play-daily"><div class="mi">' + icon("cal") + "</div><div><h2>Daily</h2><p>" +
       escapeHtml(shortDate(date)) + " · Puzzle #" + n + " · Midnight ET</p></div><span class=\"chev\">›</span></button>" +
-      (CDATA ? '<button class="mode college-new" data-act="play-college"><div class="mi">' + icon("school") +
-        '</div><div><h2>College <span class="new-pill">New</span></h2><p>Top 100 college players · Conference and team clues</p></div><span class="chev">›</span></button>' : "") +
       '<button class="mode" data-act="packs" data-next="unlimited"><div class="mi">' + icon("infinite") +
-      '</div><div><h2>Unlimited</h2><p>Practice any pack — no streak risk</p></div><span class="chev">›</span></button>' +
+      '</div><div><h2>Unlimited</h2><p>All, Rookies or Legends · no streak risk</p></div><span class="chev">›</span></button>' +
       '<button class="mode" data-act="packs" data-next="passplay"><div class="mi">' + icon("people") +
       '</div><div><h2>Pass & Play</h2><p>Head-to-head on one phone</p></div><span class="chev">›</span></button>' +
       '<button class="mode" data-act="packs" data-next="speed"><div class="mi">' + icon("bolt") +
@@ -816,15 +876,39 @@
       '<button class="chip" data-act="open-board">Leaderboard</button>' +
       '<button class="chip" data-go="archive">Archive</button>' +
       '<button class="chip ghost" data-go="how">How to play</button></div>' +
-      '<p class="legal">Fan project, not affiliated with any league, conference, school, or team.<br>Player data via nflverse, CC BY 4.0.' +
-      (CDATA ? " College data provided by CollegeFootballData.com." : "") + "</p></div>";
+      '<p class="legal">Fan project, not affiliated with any league or team.<br>Player data via nflverse, CC BY 4.0.</p></div>';
+  }
+
+  function viewHomeCollege() {
+    const date = etDate();
+    const n = collegeNum(date);
+    return '<div class="screen lp menu-screen"><div class="lp-lights" aria-hidden="true"></div><div class="lp-field" aria-hidden="true"></div><div class="top">' + leagueChip() + '<div class="top-actions">' + soundBtn() +
+      '<button class="ico" data-go="how" aria-label="How to play">' + icon("info") + "</button>" +
+      '<button class="ico" data-go="settings" aria-label="Settings">' + icon("gear") + "</button></div></div>" +
+      '<div class="league-head"><div class="kicker">College · Top 100 players</div><h1 class="logo sm">Snap <span>Count</span></h1></div>' +
+      '<div class="modes">' +
+      '<button class="mode primary" data-act="play-college"><div class="mi">' + icon("cal") + "</div><div><h2>Daily</h2><p>" +
+      escapeHtml(shortDate(date)) + " · College #" + n + " · Midnight ET</p></div><span class=\"chev\">›</span></button>" +
+      '<button class="mode" data-act="college-mode" data-next="unlimited"><div class="mi">' + icon("infinite") +
+      '</div><div><h2>Unlimited</h2><p>Practice the top 100 · no streak risk</p></div><span class="chev">›</span></button>' +
+      '<button class="mode" data-act="college-mode" data-next="passplay"><div class="mi">' + icon("people") +
+      '</div><div><h2>Pass & Play</h2><p>Head-to-head on one phone</p></div><span class="chev">›</span></button>' +
+      '<button class="mode" data-act="college-mode" data-next="speed"><div class="mi">' + icon("bolt") +
+      '</div><div><h2>Speed Round</h2><p>60 seconds on the clock</p></div><span class="chev">›</span></button></div>' +
+      '<div class="diff-label">Answer pool</div><div class="pills"><button class="on" disabled>Top 100</button></div>' +
+      '<div class="hard-row dim"><span>Hard mode: hide the Team column <em>(soon)</em></span>' +
+      '<button class="toggle" disabled aria-disabled="true"><i></i></button></div>' +
+      '<div class="home-foot"><button class="chip" data-go="stats">' + icon("home") + " Stats</button>" +
+      '<button class="chip" data-act="open-board">Leaderboard</button>' +
+      '<button class="chip ghost" data-go="how">How to play</button></div>' +
+      '<p class="legal">Fan project, not affiliated with any conference or school.<br>College data provided by CollegeFootballData.com.</p></div>';
   }
 
   function viewPacks() {
     const counts = DATA.counts;
     const label = (state.packPick || "unlimited").replace("passplay", "Pass & Play");
     return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">' + escapeHtml(label) + '</div><div style="width:40px"></div></div>' +
+      '</button><div class="top-title">' + escapeHtml(label) + '</div><div class="top-actions">' + leagueChip() + soundBtn() + "</div></div>" +
       '<div class="page-title"><h1>Choose a pack</h1><p>Practice anytime. These games never touch your daily streak.</p></div>' +
       '<button class="pack" data-act="start-pack" data-pack="live"><div class="eyebrow">Default · Live roster</div><h3>All players</h3>' +
       "<p>Current rosters only. Guess anyone — answers follow the Stars, Starters, or Full pool you pick next.</p>" +
@@ -835,9 +919,6 @@
       '<button class="pack" data-act="start-pack" data-pack="legends"><div class="eyebrow">Retired stars · Peak years</div><h3>Legends</h3>' +
       "<p>A curated set of household names from past seasons, graded on peak team, number, and size.</p>" +
       '<div class="stat">' + counts.legends + " retired stars</div></button>" +
-      (CDATA ? '<button class="pack" data-act="start-pack" data-pack="college"><div class="eyebrow">New · Updated weekly</div><h3>College</h3>' +
-        "<p>The top 100 college players nationwide, from any FBS team. Graded on team, conference, player rank (1–100), position, class, number, size, and home state.</p>" +
-        '<div class="stat">' + CDATA.counts.pool + " players · " + CDATA.counts.teams + " teams</div></button>" : "") +
       '<p class="legal">Retired players appear only in Legends. Not affiliated with any professional football league or teams.</p></div>';
   }
 
@@ -892,8 +973,8 @@
         escapeHtml(state.search) + '"/>' + suggest + "</div>"
       : '<div class="actions" style="margin-top:8px"><button class="btn gold" data-act="show-result">See result</button>' +
         ((g.mode === "unlimited" || g.mode === "speed") ? '<button class="btn ghost" data-act="again">Play again</button>' : "") + "</div>";
-    return '<div class="screen"><div class="top"><button class="ico" data-act="leave-game" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">' + escapeHtml(title) + '</div><button class="ico" data-go="how" aria-label="Info">' + icon("info") + "</button></div>" +
+    return '<div class="screen lp game-screen"><div class="lp-lights soft" aria-hidden="true"></div><div class="top"><button class="ico" data-act="leave-game" aria-label="Back">' + icon("back") +
+      '</button><div class="top-title">' + escapeHtml(title) + '</div><div class="top-actions">' + leagueChip(true) + soundBtn() + "</div></div>" +
       '<div class="game-meta"><div class="left">' + escapeHtml(shortDate(g.date)) + " · <b>" + packLabel + "</b>" +
       (g.hard ? " · Hard" : "") + (g.mode === "speed" ? " · " + (state.speed ? state.speed.solved : 0) + " solved" : "") + "</div>" +
       (timer || ('<span class="guesses-left' + (left<=2?" low":"") + '">' + left + " guess" + (left===1?"":"es") + " left</span>")) + "</div>" +
@@ -1080,7 +1161,7 @@
       return '<div class="ach' + (have[a.id] ? " on" : "") + '"><div class="dot"></div><div><h4>' + a.name + "</h4><p>" + a.desc + "</p></div></div>";
     }).join("");
     return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">Stats</div><div style="width:40px"></div></div>' +
+      '</button><div class="top-title">Stats</div><div class="top-actions">' + leagueChip() + soundBtn() + "</div></div>" +
       '<div class="page-title"><h1>' + state.tier + " daily</h1><p>Streaks only count official daily puzzles at this difficulty.</p></div>" +
       '<div class="stat-grid"><div class="stat-cell"><b>' + s.played + "</b><span>Played</span></div>" +
       '<div class="stat-cell"><b>' + pct + "</b><span>Win %</span></div>" +
@@ -1119,7 +1200,7 @@
     const prev = addDays(ty + "-" + String(tm).padStart(2, "0") + "-01", -1).slice(0, 7);
     const next = addDays(ty + "-" + String(tm).padStart(2, "0") + "-" + daysIn, 1).slice(0, 7);
     return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">Archive</div><div style="width:40px"></div></div>' +
+      '</button><div class="top-title">Archive</div><div class="top-actions">' + leagueChip() + soundBtn() + "</div></div>" +
       '<div class="page-title"><h1>Flashback</h1><p>Replay any past daily. Archive games never change your streak.</p></div>' +
       '<div class="cal-head"><button class="ico" data-act="month" data-month="' + prev + '">' + icon("back") + "</button><b>" + label +
       '</b><button class="ico" data-act="month" data-month="' + next + '">›</button></div>' +
@@ -1162,8 +1243,8 @@
       }).join("");
     }
     return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">Leaderboard</div><button class="ico" data-act="open-groups" aria-label="Friend groups">' +
-      icon("people") + "</button></div>" +
+      '</button><div class="top-title">Leaderboard</div><div class="top-actions">' + leagueChip() + soundBtn() +
+      '<button class="ico" data-act="open-groups" aria-label="Friend groups">' + icon("people") + "</button></div></div>" +
       '<div class="page-title"><h1>Leaderboard</h1><p class="lb-subline">' + escapeHtml(sub) + "</p></div>" +
       '<div class="lb-tabs">' + tabs + "</div>" + body +
       (group ? '<div class="actions" style="margin-top:12px"><button class="btn ghost" data-act="clear-group">All players</button></div>' : "") +
@@ -1180,7 +1261,7 @@
         }).join("")
       : '<p class="lb-empty">You haven’t joined a huddle yet.</p>';
     return '<div class="screen"><div class="top"><button class="ico" data-act="open-board" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">Friend Groups</div><div style="width:40px"></div></div>' +
+      '</button><div class="top-title">Friend Groups</div><div class="top-actions">' + leagueChip() + soundBtn() + "</div></div>" +
       '<div class="page-title"><h1>Friend Groups</h1><p class="lb-subline">Your huddle</p></div>' + err +
       '<div class="lb-block"><h3>Create a group</h3><p class="lb-note">Pick a group name. We’ll give you a join code to share.</p>' +
       '<div class="lb-label">Group name</div><input class="lb-field" id="group-name" maxlength="24" placeholder="The Huddle"/>' +
@@ -1281,7 +1362,7 @@
 
   function viewHow() {
     return '<div class="screen how"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">How to play</div><div style="width:40px"></div></div>' +
+      '</button><div class="top-title">How to play</div><div class="top-actions">' + leagueChip() + soundBtn() + "</div></div>" +
       '<div class="page-title"><h1>Find the player</h1><p>You get eight guesses (ten in Hard). Each guess scores nine clues.</p></div>' +
       "<h3>Colors</h3><ul><li><span class=\"swatch\" style=\"background:var(--exact)\"></span> Green — exact match</li>" +
       '<li><span class="swatch" style="background:var(--close)"></span> Gold — close (same conference; same unit for position; College Rank within 5; height / age / years / draft year within 2; jersey number within 5; weight within 10 lb)</li>' +
@@ -1308,7 +1389,7 @@
         (s[key] ? "on" : "") + '" data-act="set" data-key="' + key + '"><i></i></button></div>';
     }
     return '<div class="screen"><div class="top"><button class="ico" data-go="home" aria-label="Back">' + icon("back") +
-      '</button><div class="top-title">Settings</div><div style="width:40px"></div></div>' +
+      '</button><div class="top-title">Settings</div><div class="top-actions">' + leagueChip() + soundBtn() + "</div></div>" +
       '<div class="page-title"><h1>Settings</h1></div>' +
       row("sound", "Sound", "Short beeps on tile flips and results.") +
       row("haptics", "Haptics", "A light vibrate when tiles flip, if your phone allows it.") +
@@ -1321,6 +1402,7 @@
       b.addEventListener("click", function () {
         state.overlay = null;
         state.view = b.getAttribute("data-go");
+        if (state.view === "home" && !state.league) state.view = "league";
         render();
       });
     });
@@ -1399,7 +1481,30 @@
   }
 
   function handleAct(act, btn) {
-    if (act === "toggle-hard") {
+    if (act === "pick-league") {
+      const lg = btn.getAttribute("data-league");
+      if (lg !== "nfl" && lg !== "college") return;
+      state.league = lg;
+      saveJSON("gg:league", state.league);
+      state.view = "home";
+      state.overlay = null;
+      if (state.league === "college" && !CDATA) toast("College data is still loading");
+      render();
+    } else if (act === "switch-league") {
+      if (state.game && state.game.mode === "speed") stopSpeedClock();
+      state.view = "league";
+      state.overlay = null;
+      render();
+    } else if (act === "toggle-sound") {
+      state.settings.sound = !state.settings.sound;
+      saveJSON("gg:settings", state.settings);
+      if (state.settings.sound) beep(660, 0.06, "triangle", 0.04);
+      toast(state.settings.sound ? "Sound on" : "Sound off");
+    } else if (act === "college-mode") {
+      if (!CDATA) { toast("College data is still loading"); return; }
+      state.packPick = btn.getAttribute("data-next");
+      handleAct("start-pack", { getAttribute: function () { return "college"; } });
+    } else if (act === "toggle-hard") {
       state.hardMode = !state.hardMode;
       saveJSON("gg:hard", state.hardMode);
       render();
@@ -1463,7 +1568,7 @@
       }
     } else if (act === "leave-game") {
       if (state.game && state.game.mode === "speed") stopSpeedClock();
-      state.view = "home";
+      state.view = state.league ? "home" : "league";
       state.overlay = null;
       render();
     } else if (act === "copy-grid") copyGrid();
