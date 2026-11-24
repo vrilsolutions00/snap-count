@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Weekly College-mode refresh for Snap Count.
 
-Pool: SEC, ACC and Big Ten teams in the latest AP Top 25 (Coaches Poll if the
-AP poll is missing). Per team: 1 QB, 1-2 RB, 3 WR, 1 TE, 1 C, 4 DL, picked from
-CollegeFootballData.com (CFBD) season stats. Centers come from
-scripts/college_centers.json because CFBD lists most linemen only as "OL".
+Pool: the top 100 QB, RB, WR, TE and DL (no centers) from SEC, ACC and Big Ten
+teams in the latest AP Top 25 (Coaches Poll if the AP poll is missing), ranked
+by this season's production on a robust within-position z-score so the mix
+stays comparable across positions. Stats from CollegeFootballData.com (CFBD).
 
 Usage:
   CFBD_KEY_FILE=/workspace/snapcount-secrets/cfbd.txt python3 scripts/refresh_college.py
@@ -34,13 +34,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIRS = [ROOT / "www" / "data", ROOT / "docs" / "data"]
-CENTERS_FILE = ROOT / "scripts" / "college_centers.json"
 API = "https://api.collegefootballdata.com"
 CONFS = {"SEC": "SEC", "ACC": "ACC", "Big Ten": "B1G"}
 COLLEGE_LAUNCH = dt.date(2026, 11, 24)
 HORIZON_DAYS = 14
 NO_REPEAT_DAYS = 60
-POOL_MIN, POOL_MAX, MIN_TEAMS = 60, 500, 3
+POOL_SIZE, MIN_TEAMS = 100, 3
 DL_POS = {"DL", "DE", "DT", "NT", "EDGE"}
 CALLS = 0
 
@@ -156,94 +155,121 @@ def main() -> int:
     roster = fetch("/roster", {"year": season, "classification": "fbs"}, cache, f"roster-{season}.json", False, key)
     stats = stat_table(fetch("/stats/player/season", {"year": season}, cache, f"stats-{season}.json", False, key))
     first_seen, recruit_ids = class_years(cache, key, season)
-    centers = json.loads(CENTERS_FILE.read_text())["teams"]
+
+    def usable(p):
+        return (p.get("firstName") or p.get("lastName")) and to_int(p.get("jersey")) is not None \
+            and to_int(p.get("height")) and to_int(p.get("weight"))
+
+    def pos_of(p):
+        raw = (p.get("position") or "").upper()
+        if raw in ("QB", "RB", "WR", "TE"):
+            return raw
+        if raw in DL_POS:
+            return "DL"
+        return None
+
+    def raw_score(pos, s):
+        if pos == "QB":
+            return s.get("passing.YDS", 0) + 20 * s.get("passing.TD", 0)
+        if pos == "RB":
+            return s.get("rushing.YDS", 0) + 20 * s.get("rushing.TD", 0)
+        if pos in ("WR", "TE"):
+            return s.get("receiving.YDS", 0) + 10 * s.get("receiving.REC", 0) + 20 * s.get("receiving.TD", 0)
+        if pos == "DL":
+            return s.get("defensive.TOT", 0) + 2 * s.get("defensive.TFL", 0) + 3 * s.get("defensive.SACKS", 0)
+        return 0
+
+    def median(xs):
+        ys = sorted(xs)
+        n = len(ys)
+        if n == 0:
+            return 0.0
+        mid = n // 2
+        return float(ys[mid]) if n % 2 else (ys[mid - 1] + ys[mid]) / 2.0
+
+    def robust_z(xs, x):
+        """Median/MAD z-score, scaled to SD units. Falls back to mean/SD if MAD is 0."""
+        if not xs:
+            return 0.0
+        med = median(xs)
+        mad = median([abs(v - med) for v in xs])
+        if mad > 0:
+            return 0.6745 * (x - med) / mad
+        mu = sum(xs) / len(xs)
+        var = sum((v - mu) ** 2 for v in xs) / len(xs)
+        sd = var ** 0.5
+        return (x - mu) / sd if sd else 0.0
 
     team_out = {}
-    players = []
-    warnings = []
+    school_to_key = {}
+    candidates = []
     for rank, t in ranked:
         school = t["school"]
         abbr = (t.get("abbreviation") or school[:4]).replace("&", "").upper()
         tkey = "cfb-" + abbr
+        school_to_key[school] = tkey
         team_out[tkey] = {
             "abbr": tkey, "display": abbr, "city": school, "conf": CONFS[t["conference"]],
             "c1": t.get("color") or "#444444", "c2": t.get("alternateColor") or "#999999", "rank": rank,
         }
-        mine = [p for p in roster if p.get("team") == school]
+        for p in roster:
+            if p.get("team") != school or not usable(p):
+                continue
+            pos = pos_of(p)
+            if not pos:
+                continue
+            raw = raw_score(pos, stats.get(str(p["id"]), {}))
+            if raw <= 0:
+                continue
+            candidates.append((pos, raw, p, tkey))
 
-        def usable(p):
-            return (p.get("firstName") or p.get("lastName")) and to_int(p.get("jersey")) is not None \
-                and to_int(p.get("height")) and to_int(p.get("weight"))
+    by_pos_raw: dict[str, list[float]] = {}
+    for pos, raw, _p, _tkey in candidates:
+        by_pos_raw.setdefault(pos, []).append(raw)
+    scored = []
+    for pos, raw, p, tkey in candidates:
+        scored.append((robust_z(by_pos_raw[pos], raw), raw, pos, p, tkey))
+    scored.sort(key=lambda x: (-x[0], -x[1], str(x[3]["id"])))
+    if len(scored) < POOL_SIZE:
+        sys.exit(f"Validation failed: only {len(scored)} players with production, need {POOL_SIZE}")
+    picked = scored[:POOL_SIZE]
 
-        def top(positions, metric, n, need=0.0):
-            cand = []
-            for p in mine:
-                if (p.get("position") or "").upper() not in positions or not usable(p):
-                    continue
-                s = stats.get(str(p["id"]), {})
-                score = metric(s)
-                if score > need:
-                    cand.append((score, p))
-            cand.sort(key=lambda x: (-x[0], str(x[1]["id"])))
-            return cand[:n]
-
-        picks = []
-        picks += [("QB", p) for _, p in top({"QB"}, lambda s: s.get("passing.ATT", 0), 1)]
-        rbs = top({"RB"}, lambda s: s.get("rushing.CAR", 0), 2)
-        if rbs:
-            picks.append(("RB", rbs[0][1]))
-            if len(rbs) > 1 and rbs[1][0] >= 0.4 * rbs[0][0]:
-                picks.append(("RB", rbs[1][1]))
-        picks += [("WR", p) for _, p in top({"WR"}, lambda s: s.get("receiving.YDS", 0) + s.get("receiving.REC", 0) / 100, 3)]
-        picks += [("TE", p) for _, p in top({"TE"}, lambda s: s.get("receiving.YDS", 0) + s.get("receiving.REC", 0) / 100, 1)]
-        dl_metric = lambda s: (s.get("defensive.TOT", 0) + 2 * s.get("defensive.TFL", 0)
-                               + 3 * s.get("defensive.SACKS", 0) + s.get("defensive.QB HUR", 0))
-        picks += [("DL", p) for _, p in top(DL_POS, dl_metric, 4)]
-        c = centers.get(school)
-        cp = None
-        if c:
-            cp = next((p for p in mine if str(p.get("id")) == str(c.get("cfbdId"))), None)
-            if cp is None:
-                cp = next((p for p in mine if to_int(p.get("jersey")) == c.get("no")
-                           and (p.get("lastName") or "").split(" ")[0].lower() in c["name"].lower()), None)
-        if cp is not None and usable(cp):
-            picks.append(("C", cp))
+    players = []
+    warnings = []
+    for _z, _raw, pos, p, tkey in picked:
+        pid = str(p["id"])
+        if pid in first_seen:
+            cls = min(5, season - first_seen[pid] + 1)
+        elif any(str(r) in recruit_ids for r in (p.get("recruitIds") or [])):
+            cls = 1
         else:
-            warnings.append(f"No center for {school} (update scripts/college_centers.json)")
-        for pos, p in picks:
-            pid = str(p["id"])
-            if pid in first_seen:
-                cls = min(5, season - first_seen[pid] + 1)
-            elif any(str(r) in recruit_ids for r in (p.get("recruitIds") or [])):
-                cls = 1
-            else:
-                cls = None
-            rec = {
-                "id": "cfb-" + pid,
-                "name": ((p.get("firstName") or "") + " " + (p.get("lastName") or "")).strip(),
-                "first": p.get("firstName") or "", "last": p.get("lastName") or "",
-                "team": tkey, "pos": pos, "no": to_int(p["jersey"]),
-                "ht": to_int(p["height"]), "wt": to_int(p["weight"]),
-            }
-            if cls is not None:
-                rec["cls"] = cls
-            country = (p.get("homeCountry") or "USA").upper()
-            st = p.get("homeState") if country in ("USA", "US", "") else country[:3]
-            if st:
-                rec["hs"] = st
-            if p.get("homeCity"):
-                rec["hc"] = p["homeCity"]
-            players.append(rec)
-        counted = {k: sum(1 for x, _ in picks if x == k) for k in ("QB", "RB", "WR", "TE", "C", "DL")}
-        if counted["QB"] == 0 or counted["DL"] < 2 or counted["WR"] < 2:
-            warnings.append(f"Thin picks for {school}: {counted}")
+            cls = None
+        rec = {
+            "id": "cfb-" + pid,
+            "name": ((p.get("firstName") or "") + " " + (p.get("lastName") or "")).strip(),
+            "first": p.get("firstName") or "", "last": p.get("lastName") or "",
+            "team": tkey, "pos": pos, "no": to_int(p["jersey"]),
+            "ht": to_int(p["height"]), "wt": to_int(p["weight"]),
+        }
+        if cls is not None:
+            rec["cls"] = cls
+        country = (p.get("homeCountry") or "USA").upper()
+        st = p.get("homeState") if country in ("USA", "US", "") else country[:3]
+        if st:
+            rec["hs"] = st
+        if p.get("homeCity"):
+            rec["hc"] = p["homeCity"]
+        players.append(rec)
+    mix = {k: sum(1 for x in picked if x[2] == k) for k in ("QB", "RB", "WR", "TE", "DL")}
+    if any(v == 0 for v in mix.values()):
+        warnings.append(f"Top {POOL_SIZE} is missing a position: {mix}")
 
     # dedupe ids (should not happen)
     seen = set()
     players = [p for p in players if not (p["id"] in seen or seen.add(p["id"]))]
     pool_n = len(players)
-    if not (POOL_MIN <= pool_n <= POOL_MAX):
-        sys.exit(f"Validation failed: pool size {pool_n} outside {POOL_MIN}-{POOL_MAX}")
+    if pool_n != POOL_SIZE:
+        sys.exit(f"Validation failed: pool size {pool_n} != {POOL_SIZE}")
     eligible = sorted(p["id"] for p in players if p.get("cls"))
     if len(eligible) < 30:
         sys.exit(f"Validation failed: only {len(eligible)} answer-eligible players")

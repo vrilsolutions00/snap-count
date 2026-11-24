@@ -764,7 +764,7 @@
       '<button class="mode primary" data-act="play-daily"><div class="mi">' + icon("cal") + "</div><div><h2>Daily</h2><p>" +
       escapeHtml(shortDate(date)) + " · Puzzle #" + n + " · Midnight ET</p></div><span class=\"chev\">›</span></button>" +
       (CDATA ? '<button class="mode college-new" data-act="play-college"><div class="mi">' + icon("school") +
-        '</div><div><h2>College <span class="new-pill">New</span></h2><p>Top 25 SEC, ACC &amp; Big Ten starters · Conference and team clues</p></div><span class="chev">›</span></button>' : "") +
+        '</div><div><h2>College <span class="new-pill">New</span></h2><p>Top 100 players from SEC, ACC &amp; Big Ten Top 25 teams · Conference and team clues</p></div><span class="chev">›</span></button>' : "") +
       '<button class="mode" data-act="packs" data-next="unlimited"><div class="mi">' + icon("infinite") +
       '</div><div><h2>Unlimited</h2><p>Practice any pack — no streak risk</p></div><span class="chev">›</span></button>' +
       '<button class="mode" data-act="packs" data-next="passplay"><div class="mi">' + icon("people") +
@@ -801,7 +801,7 @@
       "<p>A curated set of household names from past seasons, graded on peak team, number, and size.</p>" +
       '<div class="stat">' + counts.legends + " retired stars</div></button>" +
       (CDATA ? '<button class="pack" data-act="start-pack" data-pack="college"><div class="eyebrow">New · Updated weekly</div><h3>College</h3>' +
-        "<p>Starters from SEC, ACC and Big Ten teams in this week’s Top 25. Graded on team, conference, position, class, number, size, and home state.</p>" +
+        "<p>The top 100 players from SEC, ACC and Big Ten teams in this week’s Top 25. Graded on team, conference, position, class, number, size, and home state.</p>" +
         '<div class="stat">' + CDATA.counts.pool + " players · " + CDATA.counts.teams + " ranked teams</div></button>" : "") +
       '<p class="legal">Retired players appear only in Legends. Not affiliated with any professional football league or teams.</p></div>';
   }
@@ -1250,7 +1250,7 @@
       "<h3>Draft year</h3><p>Undrafted players are shown as UDFA. A UDFA only matches another UDFA — there is no “close” draft year in that case.</p>" +
       "<h3>Difficulty</h3><p>Starters is the default pool: every current depth-chart starter, chosen uniformly at random. Stars is a smaller, more familiar list. Full is every validated player on a current roster. Hard hides the Team column.</p>" +
       "<h3>Packs</h3><p>Rookies uses this season’s first-year players. Legends is a curated set of retired stars, graded on peak team, number, and size. Retired players never appear in the live daily.</p>" +
-      "<h3>College</h3><p>College mode uses starters from SEC, ACC and Big Ten teams ranked in the latest AP Top 25: quarterback, running backs, receivers, tight end, center, and defensive linemen. The list updates weekly with the rankings. Clues: Team, Conference, Position (gold = same side of the ball), Class (FR, SO, JR, SR, GS = fifth year or later, counted from seasons on a college roster; gold within one year), jersey number, height, weight, and Home (green = same hometown, gold = same home state). College data provided by <a href=\"https://collegefootballdata.com\" target=\"_blank\" rel=\"noopener\">CollegeFootballData.com</a>. Not affiliated with any conference or school.</p>" +
+      "<h3>College</h3><p>College mode uses the top 100 players from SEC, ACC and Big Ten teams ranked in the latest AP Top 25: quarterbacks, running backs, receivers, tight ends, and defensive linemen. The list updates weekly with the rankings. Clues: Team, Conference, Position (gold = same side of the ball), Class (FR, SO, JR, SR, GS = fifth year or later, counted from seasons on a college roster; gold within one year), jersey number, height, weight, and Home (green = same hometown, gold = same home state). College data provided by <a href=\"https://collegefootballdata.com\" target=\"_blank\" rel=\"noopener\">CollegeFootballData.com</a>. Not affiliated with any conference or school.</p>" +
       "<h3>Add to Home Screen</h3><p>In Safari, tap Share → Add to Home Screen to install this as an app, for free. It works offline once loaded.</p>" +
       '<h3>About the data</h3><p>Player data via <a href="https://github.com/nflverse/nflverse-data/" target="_blank" rel="noopener">nflverse</a>, licensed <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, with live depth and popularity hints from the public Sleeper API. Rosters refresh daily. Ages are computed from birth dates as of the puzzle’s Eastern Time date. Snapshot: ' +
       escapeHtml((DATA.asOf || "").replace("T", " ").replace("Z", " UTC")) + ".</p>" +
