@@ -1122,3 +1122,54 @@ body:has(#app .game-screen), html:has(#app .game-screen) { height: 100dvh; overf
 .game-screen > .legal { flex: 0 0 auto; margin: 4px 0 0; font-size: 10px; }
 .search-bar input:focus { border-color: var(--acc); }
 .suggest button.on, .suggest button:hover { background: rgba(var(--acc-rgb),.08); }
+
+/* ===== Reveal hero (fictional placeholder art breaking out of the frame) ===== */
+.card { border-color: rgba(var(--acc-rgb),.32); max-height: calc(100dvh - 24px); overflow-y: auto; scrollbar-width: none; }
+.card .solved { color: var(--acc); }
+.card .btn.gold { background: var(--acc); color: var(--acc-ink); }
+.overlay.center { padding: 12px 18px; }
+.rv-hero { position: relative; height: 150px; margin: 40px 0 10px; }
+.rv-panel { position: absolute; inset: 0; border-radius: 18px; overflow: hidden;
+  background: linear-gradient(135deg, #0B0B0D 0%, #17120D 55%, #0B0B0D 100%);
+  border: 1.5px solid rgba(var(--acc-rgb),.55);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 0 26px rgba(var(--acc-rgb),.28), inset 0 0 40px rgba(0,0,0,.7);
+  clip-path: polygon(0 0, 46% 0, 49% 9%, 53% 2%, 57% 13%, 61% 4%, 66% 15%, 72% 3%, 78% 12%, 84% 2%, 90% 10%, 94% 0, 100% 0, 100% 100%, 0 100%); }
+.rv-glow { position: absolute; inset: 0; background:
+  radial-gradient(160px 130px at 72% 30%, rgba(var(--acc-rgb),.55), transparent 70%),
+  radial-gradient(220px 160px at 75% 110%, color-mix(in srgb, var(--tc1) 55%, transparent), transparent 70%); }
+.rv-wm { position: absolute; left: -26px; top: -18px; width: 190px; height: 190px; object-fit: contain; opacity: .13; transform: rotate(-12deg); filter: grayscale(.2); }
+.rv-streaks { position: absolute; inset: 0; background: repeating-linear-gradient(115deg, transparent 0 14px, rgba(255,255,255,.035) 14px 16px); }
+.rv-num { position: absolute; left: 14px; bottom: 8px; font-family: var(--font-d); font-weight: 700; font-size: 92px; line-height: .8; letter-spacing: -.02em;
+  color: transparent; -webkit-text-stroke: 1.5px rgba(var(--acc-rgb),.85); text-shadow: 0 0 18px rgba(var(--acc-rgb),.35); }
+.rv-crest { position: absolute; left: 14px; top: 12px; display: flex; align-items: center; gap: 6px; }
+.rv-crest img { width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+.rv-crest span { font-family: var(--font-d); font-size: 13px; letter-spacing: .14em; color: #fff; background: rgba(var(--acc-rgb),.18); border: 1px solid rgba(var(--acc-rgb),.5); border-radius: 6px; padding: 1px 6px; }
+.rv-tag { position: absolute; right: 8px; bottom: 6px; z-index: 3; font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.55); background: rgba(0,0,0,.55); padding: 2px 5px; border-radius: 4px; }
+.rv-shards { position: absolute; left: 0; right: 0; top: -58px; height: 60px; width: 100%; overflow: visible; pointer-events: none; z-index: 1; }
+.rv-shards polygon { fill: rgba(var(--acc-rgb),.75); filter: drop-shadow(0 0 4px rgba(var(--acc-rgb),.9)); }
+.rv-shards polygon.b { fill: #1c1c1f; stroke: rgba(var(--acc-rgb),.8); stroke-width: 1; }
+.rv-shards polygon.f { opacity: .8; }
+.rv-shards path.c { fill: none; stroke: rgba(var(--acc-rgb),.7); stroke-width: 1.2; }
+.rv-player { position: absolute; right: -6px; bottom: 0; height: 196px; z-index: 2; pointer-events: none;
+  filter: drop-shadow(0 0 1.5px rgba(var(--acc-rgb),.95)) drop-shadow(0 0 12px rgba(var(--acc-rgb),.55)) drop-shadow(-10px 6px 14px rgba(0,0,0,.8)); }
+.rv-ident { margin-bottom: 12px; }
+.rv-ident h2 { color: #fff; font-size: 34px; }
+.rv-ident p { display: flex; align-items: center; gap: 6px; }
+.rv-ident p .team-logo { width: 26px; height: 26px; flex: none; object-fit: contain; }
+.rv-placeholder { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); text-align: right; margin: -6px 0 8px; }
+.rv-hero { margin-top: 58px; }
+.card .solved { margin-bottom: 0; }
+.rv-player { height: 192px; }
+.rv-wm { filter: brightness(0) invert(1); opacity: .08; }
+.rv-crest img, .rv-ident p .team-logo { filter: drop-shadow(0 0 1px rgba(255,255,255,.95)) drop-shadow(0 0 4px rgba(255,255,255,.35)); }
+
+/* league accent glow only (College #FF8A3D, NFL #C8FF00) */
+.rv-glow { background: radial-gradient(160px 130px at 72% 30%, rgba(var(--acc-rgb),.55), transparent 70%), radial-gradient(220px 160px at 75% 110%, rgba(var(--acc-rgb),.28), transparent 70%); }
+.rv-panel { background: linear-gradient(135deg, #0B0B0D 0%, #10140A 55%, #0B0B0D 100%); }
+#app.lg-cfb .rv-panel { background: linear-gradient(135deg, #0B0B0D 0%, #1A120B 55%, #0B0B0D 100%); }
+.rv-pwrap { --ph: 192px; position: absolute; right: -6px; bottom: 0; height: var(--ph); z-index: 2; pointer-events: none;
+  filter: drop-shadow(0 0 1.5px rgba(var(--acc-rgb),.95)) drop-shadow(0 0 12px rgba(var(--acc-rgb),.55)) drop-shadow(-10px 6px 14px rgba(0,0,0,.8)); }
+.rv-pwrap .rv-player { position: absolute; inset: 0; right: auto; bottom: auto; width: 100%; height: 100%; filter: none; }
+.rv-pwrap .rv-player { z-index: 1; } 
+/* stronger league rim glow on the player (orange College / #C8FF00 NFL) */
+.rv-pwrap { filter: drop-shadow(0 0 2px rgba(var(--acc-rgb),1)) drop-shadow(0 0 9px rgba(var(--acc-rgb),.85)) drop-shadow(0 0 22px rgba(var(--acc-rgb),.5)) drop-shadow(-10px 6px 14px rgba(0,0,0,.8)); }

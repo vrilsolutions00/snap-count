@@ -606,10 +606,12 @@
     sfxFlip();
     if (player.id === answer.id) {
       g.status = "won";
+      g.endedAt = Date.now();
       sfxWin();
       finishGame(true);
     } else if (g.guesses.length >= g.max) {
       g.status = "lost";
+      g.endedAt = Date.now();
       sfxLose();
       finishGame(false);
     }
@@ -808,6 +810,7 @@
     root.className = state.view === "league" ? "lg-pick" : (lgC ? "lg-cfb" : "lg-nfl");
     root.innerHTML = html;
     bind();
+    hydrateTeamArt();
     const bw = root.querySelector(".game-screen .board-wrap");
     if (bw && state.game) {
       const rb = bw.querySelectorAll(".row-block");
@@ -1097,8 +1100,7 @@
     }
     if (g.mode === "passplay" && g.passSeat === 2) extra += passSummary();
     return '<div class="overlay center" data-act="close-overlay"><div class="card" data-stop><div class="solved">' + escapeHtml(title) + "</div>" +
-      '<div class="ident">' + silhouetteSVG(p, 8, true, true).replace('class="sil"', 'class="sil" style="width:72px;height:90px"') +
-      "<div><h2>" + escapeHtml(p.name) + "</h2><p>" + escapeHtml(city(p.team)) + " · " + p.pos + " · #" + p.no + "</p></div></div>" +
+      revealHero(p) +
       (isCollege(p) ? collegeFacts(p) : ('<dl class="facts"><div><dt>Team</dt><dd>' + escapeHtml(city(p.team)) + "</dd></div><div><dt>Position</dt><dd>" + p.pos +
       "</dd></div><div><dt>College</dt><dd>" + escapeHtml(p.college || "—") + "</dd></div><div><dt>Draft</dt><dd>" +
       (p.udfa ? "UDFA" : (p.dy + " · Round " + p.dr)) + "</dd></div><div><dt>Years</dt><dd>" + p.yoe +
@@ -1107,7 +1109,87 @@
       '<div class="share-box"><div class="cap">Spoiler-free share</div><div style="font-weight:700;margin-bottom:6px">' +
       escapeHtml(shareHeadline(g)) + '</div><pre class="emoji">' + emojiGrid(g) + "</pre></div>" +
       '<div class="actions"><button class="btn gold" data-act="share-image">Share image</button>' +
-      '<button class="btn ghost" data-act="copy-grid">Copy grid</button></div>' + extra + "</div></div>";
+      '<button class="btn ghost" data-act="copy-grid">Copy grid</button></div>' +
+      (g.mode !== "daily" ? '<div class="actions"><button class="btn ghost" data-act="share-full">Share full card</button></div>' : "") + extra + "</div></div>";
+  }
+  /* Reveal hero: fictional placeholder player breaking out of the frame. Art is a placeholder, not a real person.
+     Five generic, fictional, blank-jersey poses. No number on the art; the number lives only in the
+     big outlined numeral left of the player (p.no). Position picks the allowed poses, an id hash picks one. */
+  const POSES = {
+    reach: { src: "./art/poses/reach.png", w: 547, h: 760 },
+    run: { src: "./art/poses/run.png", w: 429, h: 760 },
+    throw: { src: "./art/poses/throw.png", w: 559, h: 760 },
+    stance: { src: "./art/poses/stance.png", w: 493, h: 760 },
+    celebrate: { src: "./art/poses/celebrate.png", w: 597, h: 760 }
+  };
+  // Throwing is QB-only. Every list below except QB's leaves it out; posesFor() also strips it as a guard.
+  const POSE_BY_POS = {
+    QB: ["throw", "celebrate"],
+    WR: ["run", "celebrate"], RB: ["run", "celebrate"], TE: ["run", "celebrate"], FB: ["run", "celebrate"],
+    OL: ["stance", "celebrate"], OT: ["stance", "celebrate"], OG: ["stance", "celebrate"], C: ["stance", "celebrate"],
+    DL: ["stance", "celebrate"], DE: ["stance", "celebrate"], DT: ["stance", "celebrate"], LB: ["stance", "celebrate"], EDGE: ["stance", "celebrate"],
+    ILB: ["stance", "celebrate"], OLB: ["stance", "celebrate"], MLB: ["stance", "celebrate"], NT: ["stance", "celebrate"], G: ["stance", "celebrate"], T: ["stance", "celebrate"],
+    DB: ["reach", "celebrate"], CB: ["reach", "celebrate"], S: ["reach", "celebrate"], FS: ["reach", "celebrate"], SS: ["reach", "celebrate"], SAF: ["reach", "celebrate"]
+  };
+  function posesFor(p) {
+    const list = (POSE_BY_POS[String(p.pos || "").toUpperCase()] || ["reach", "celebrate"]).slice();
+    return p.pos === "QB" ? list : list.filter(function (x) { return x !== "throw"; });
+  }
+  function idHash(id) { let h = 2166136261; for (const ch of String(id)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function poseKey(p) {
+    const l = posesFor(p);
+    const k = l[idHash(p.id) % l.length];
+    return (k === "throw" && String(p.pos || "").toUpperCase() !== "QB") ? "celebrate" : k; // hard rule: throw is QB-only
+  }
+  function hasNo(p) { return p && p.no !== null && p.no !== undefined && String(p.no).trim() !== ""; }
+  function blankArt(p) { return POSES.reach.src; }
+  function artFor(p) { const k = poseKey(p); return Object.assign({ pose: k }, POSES[k]); }
+  const teamArtCache = {};
+  async function buildTeamArt(p) {
+    const a = artFor(p), col = isCollege(p);
+    const key = a.pose + "|" + p.team + "|" + (col ? "c" : "n");
+    if (teamArtCache[key]) return teamArtCache[key];
+    const img = await loadImg(a.src); if (!img) return null;
+    const W = img.width, H = img.height, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const o = cv.getContext("2d"); o.drawImage(img, 0, 0);
+    const ACC = col ? "255,138,61" : "200,255,0";
+    // keep alpha: re-mask to the cutout (color/screen can touch transparent pixels)
+    o.save(); o.globalCompositeOperation = "destination-in"; o.drawImage(img, 0, 0); o.restore();
+    // baked rim light in the league accent (light from behind: crescents on the top/side edges)
+    const rim = document.createElement("canvas"); rim.width = W; rim.height = H; const r = rim.getContext("2d");
+    [[-6, 7], [6, 7], [0, 8]].forEach(function (d) {
+      r.save(); r.globalCompositeOperation = "source-over"; r.drawImage(img, 0, 0);
+      r.globalCompositeOperation = "source-in"; r.fillStyle = "rgba(" + ACC + ",1)"; r.fillRect(0, 0, W, H);
+      r.globalCompositeOperation = "destination-out"; r.filter = "blur(3px)"; r.drawImage(img, d[0], d[1]); r.restore();
+      o.save(); o.globalCompositeOperation = "source-atop"; o.globalAlpha = 0.55; o.filter = "blur(1px)"; o.drawImage(rim, 0, 0); o.restore();
+      r.clearRect(0, 0, W, H);
+    });
+    teamArtCache[key] = { canvas: cv, url: cv.toDataURL("image/png") };
+    return teamArtCache[key];
+  }
+  function hydrateTeamArt() {
+    const el = document.querySelector(".rv-player[data-pid]"); if (!el) return;
+    const p = playersById.get(el.getAttribute("data-pid")); if (!p) return;
+    buildTeamArt(p).then(function (res) { if (res && el.isConnected) { el.src = res.url; el.dataset.ready = "1"; } el.style.opacity = 1; })
+      .catch(function () { el.style.opacity = 1; });
+  }
+  function playerArt(p) { return artFor(p).src; }
+  function revealHero(p) {
+    const t = teamInfo(p.team) || { c1: "#888", c2: "#222" };
+    const lg = logoSrc(p.team, true);
+    const a = artFor(p), num = hasNo(p) ? String(p.no) : "";
+    return '<div class="rv-hero" style="--tc1:' + t.c1 + ';--tc2:' + t.c2 + '">' +
+      '<div class="rv-panel"><div class="rv-glow"></div><img class="rv-wm" src="' + lg + '" alt=""><div class="rv-streaks"></div>' +
+      (num ? '<div class="rv-num">' + escapeHtml(num) + '</div>' : "") +
+      '<div class="rv-crest"><img src="' + lg + '" alt=""><span>' + escapeHtml(p.pos) + '</span></div>' +
+      '</div>' +
+      '<svg class="rv-shards" viewBox="0 0 320 60" preserveAspectRatio="none" aria-hidden="true">' +
+      '<polygon points="150,58 162,40 171,58" /><polygon points="176,58 186,30 196,46 204,58" class="b"/><polygon points="268,58 279,36 288,58"/>' +
+      '<polygon points="140,26 148,18 151,30" class="f"/><polygon points="292,22 303,14 300,28" class="f"/><polygon points="214,8 222,2 224,14" class="f b"/>' +
+      '<path d="M158 60 L170 46 L166 38 M196 60 L205 44 L214 47 M283 60 L276 48 L282 40" class="c"/></svg>' +
+      '<div class="rv-pwrap" style="aspect-ratio:' + a.w + '/' + a.h + '"><img class="rv-player" data-pose="' + a.pose + '" data-pid="' + escapeHtml(p.id) + '" style="opacity:0;transition:opacity .15s" src="' + a.src + '" onerror="this.onerror=null;this.src=\'' + blankArt(p) + '\'" alt="Fictional placeholder athlete"></div>' +
+      '<span class="rv-tag">Placeholder art · not a real player</span>' +
+      '</div><div class="ident rv-ident"><div><h2>' + escapeHtml(p.name) + '</h2><p>' + logo(p.team, "name") + " " + escapeHtml(city(p.team)) + " · " + escapeHtml(p.pos) + '</p></div></div>';
   }
   function collegeFacts(p) {
     const t = teamInfo(p.team);
@@ -1572,7 +1654,8 @@
       state.overlay = null;
       render();
     } else if (act === "copy-grid") copyGrid();
-    else if (act === "share-image") shareImage();
+    else if (act === "share-image") shareImage(false);
+    else if (act === "share-full") { if (state.game && state.game.mode !== "daily") shareImage(true); }
     else if (act === "pass-to-p2") { state.overlay = "pass-ready"; render(); }
     else if (act === "start-p2") {
       const p = state.pass;
@@ -1691,70 +1774,180 @@
     } catch (e) { toast("Could not copy"); }
   }
 
-  async function shareImage() {
-    const g = state.game;
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1350;
-    const c = canvas.getContext("2d");
-    c.fillStyle = "#050506";
-    c.fillRect(0, 0, 1080, 1350);
-    const grd = c.createRadialGradient(540, 0, 20, 540, 0, 700);
-    grd.addColorStop(0, "rgba(200,255,0,0.16)");
-    grd.addColorStop(1, "rgba(0,0,0,0)");
-    c.fillStyle = grd;
-    c.fillRect(0, 0, 1080, 1350);
-    c.fillStyle = "#C8FF00";
-    c.font = "700 28px sans-serif";
-    c.textAlign = "center";
-    c.fillText("SNAP COUNT", 540, 160);
-    c.fillStyle = "#fff";
-    c.font = "700 48px sans-serif";
-    c.fillText(shareHeadline(g), 540, 240);
-    const rows = g.grades;
-    const colsN = rows[0] ? rows[0].length : 9;
-    const size = 72, gap = 12;
-    const w = colsN * size + (colsN - 1) * gap;
-    const x0 = (1080 - w) / 2;
-    let y = 320;
-    const colors = { exact: "#159A55", close: "#E0A800", miss: "#2C2C30" };
-    rows.forEach(function (row) {
-      row.forEach(function (t, i) {
-        c.fillStyle = colors[t.grade];
-        const x = x0 + i * (size + gap);
-        c.beginPath();
-        const r = 12;
-        c.moveTo(x + r, y);
-        c.arcTo(x + size, y, x + size, y + size, r);
-        c.arcTo(x + size, y + size, x, y + size, r);
-        c.arcTo(x, y + size, x, y, r);
-        c.arcTo(x, y, x + size, y, r);
-        c.closePath();
-        c.fill();
-      });
-      y += size + gap;
+  /* Share the WHOLE reveal card (player art, name, facts, solved line, grid, branding, URL).
+     opts.spoiler = true hides the player, name and identifying facts. */
+  function loadImg(src) {
+    return new Promise(function (res) { const im = new Image(); im.onload = function () { res(im); }; im.onerror = function () { res(null); }; im.src = src; });
+  }
+  function rrect(c, x, y, w, h, r) {
+    c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+  function hexA(hex, a) { const n = parseInt(hex.replace("#", ""), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + a + ")"; }
+  /* Solve time: from the game's start (g.startedAt, set when the puzzle opens; saved with Daily games in
+     localStorage so a reload keeps it) to the final guess (g.endedAt). */
+  function gameElapsedMs(g) {
+    if (!g || !g.startedAt) return null;
+    const end = g.endedAt || (g.status === "playing" ? Date.now() : null);
+    if (!end) return null;
+    return Math.max(0, end - g.startedAt);
+  }
+  function fmtElapsed(ms) {
+    if (ms === null || ms === undefined) return "";
+    const t = Math.round(ms / 1000), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+    return (h ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(sec).padStart(2, "0");
+  }
+  async function renderShareCanvas(g, opts) {
+    opts = opts || {};
+    const spoiler = !!opts.spoiler;
+    const p = playersById.get(g.answerId);
+    const col = isCollege(p);
+    const t = teamInfo(p.team) || { c1: "#888888", c2: "#222222", city: p.team };
+    const ACC = col ? "#FF8A3D" : "#C8FF00", A = col ? "255,138,61" : "200,255,0";
+    const W = 1080, H = 1350, D = "Oswald, 'Arial Narrow', sans-serif", B = "Outfit, 'Segoe UI', sans-serif";
+    await Promise.all([document.fonts.load("700 100px Oswald"), document.fonts.load("600 30px Outfit"), document.fonts.load("700 30px Outfit")]);
+    const art = (spoiler ? await loadImg(POSES.celebrate.src) : ((await buildTeamArt(p)) || {}).canvas || await loadImg(playerArt(p))) || await loadImg(blankArt(p)), crest = await loadImg(logoSrc(p.team, true));
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const c = cv.getContext("2d");
+    // background
+    c.fillStyle = "#050506"; c.fillRect(0, 0, W, H);
+    let gr = c.createRadialGradient(780, 260, 20, 780, 260, 760); gr.addColorStop(0, "rgba(" + A + ",0.20)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = gr; c.fillRect(0, 0, W, H);
+    c.strokeStyle = "rgba(" + A + ",0.05)"; c.lineWidth = 2;
+    for (let x = 0; x < W; x += 64) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
+    // brand (top-left so the helmet can break out on the right)
+    c.textAlign = "left"; c.textBaseline = "alphabetic";
+    c.font = "700 76px " + D; c.fillStyle = "#fff"; c.fillText("SNAP", 60, 118);
+    const sw = c.measureText("SNAP ").width; c.fillStyle = ACC; c.fillText("COUNT", 60 + sw, 118);
+    c.font = "700 24px " + B; c.fillStyle = "rgba(255,255,255,0.6)";
+    const kick = shareHeadline(g).replace("Snap Count · ", "").replace(/ [0-9X]+\/[0-9]+$/, "").toUpperCase();
+    c.fillText((col ? "" : "NFL  ·  ") + kick + "  ·  DAILY PLAYER PUZZLE", 62, 162);
+    // hero panel with torn top edge
+    const px = 60, py = 270, pw = 960, ph = 400;
+    const torn = [[0,0],[.46,0],[.49,.06],[.53,.015],[.57,.08],[.61,.025],[.66,.09],[.72,.02],[.78,.075],[.84,.015],[.9,.06],[.94,0],[1,0]];
+    function panelPath() {
+      c.beginPath(); c.moveTo(px + 28, py);
+      torn.slice(1, -1).forEach(function (q) { c.lineTo(px + q[0] * pw, py + q[1] * ph); });
+      c.lineTo(px + pw - 28, py); c.arcTo(px + pw, py, px + pw, py + 28, 28); c.lineTo(px + pw, py + ph - 28);
+      c.arcTo(px + pw, py + ph, px + pw - 28, py + ph, 28); c.lineTo(px + 28, py + ph); c.arcTo(px, py + ph, px, py + ph - 28, 28);
+      c.lineTo(px, py + 28); c.arcTo(px, py, px + 28, py, 28); c.closePath();
+    }
+    c.save(); c.shadowColor = "rgba(" + A + ",0.45)"; c.shadowBlur = 50; panelPath(); c.fillStyle = "#0B0B0D"; c.fill(); c.restore();
+    c.save(); panelPath(); c.clip();
+    gr = c.createLinearGradient(px, py, px + pw, py + ph); gr.addColorStop(0, "#0B0B0D"); gr.addColorStop(.55, col ? "#1A120B" : "#10140A"); gr.addColorStop(1, "#0B0B0D");
+    c.fillStyle = gr; c.fillRect(px, py, pw, ph);
+    gr = c.createRadialGradient(px + pw * .74, py + ph * .3, 10, px + pw * .74, py + ph * .3, 420); gr.addColorStop(0, "rgba(" + A + ",0.55)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = gr; c.fillRect(px, py, pw, ph);
+    gr = c.createRadialGradient(px + pw * .75, py + ph * 1.1, 10, px + pw * .75, py + ph * 1.1, 520); gr.addColorStop(0, "rgba(" + A + ",0.32)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = gr; c.fillRect(px, py, pw, ph);
+    if (crest && !spoiler) { // white mono watermark
+      const off = document.createElement("canvas"); off.width = 520; off.height = 520; const o = off.getContext("2d");
+      o.drawImage(crest, 0, 0, 520, 520); o.globalCompositeOperation = "source-in"; o.fillStyle = "#fff"; o.fillRect(0, 0, 520, 520);
+      c.save(); c.globalAlpha = .08; c.translate(px + 170, py + 190); c.rotate(-0.21); c.drawImage(off, -260, -260); c.restore();
+    }
+    c.strokeStyle = "rgba(255,255,255,0.035)"; c.lineWidth = 5;
+    for (let x = -ph; x < pw; x += 44) { c.beginPath(); c.moveTo(px + x, py + ph); c.lineTo(px + x + ph * .47, py); c.stroke(); }
+    c.font = "700 270px " + D; c.lineWidth = 4; c.strokeStyle = ACC; c.shadowColor = "rgba(" + A + ",0.6)"; c.shadowBlur = 30;
+    if (spoiler || hasNo(p)) c.strokeText(spoiler ? "?" : String(p.no), px + 40, py + ph - 26); c.shadowBlur = 0;
+    if (!spoiler) {
+      if (crest) { c.save(); c.shadowColor = "rgba(255,255,255,0.9)"; c.shadowBlur = 6; c.drawImage(crest, px + 40, py + 36, 92, 92); c.restore(); }
+      c.font = "700 34px " + D; const tw = c.measureText(p.pos).width + 30;
+      rrect(c, px + 148, py + 58, tw, 50, 10); c.fillStyle = "rgba(" + A + ",0.18)"; c.fill(); c.strokeStyle = "rgba(" + A + ",0.6)"; c.lineWidth = 2; c.stroke();
+      c.fillStyle = "#fff"; c.fillText(p.pos, px + 163, py + 96);
+    }
+    c.restore();
+    c.save(); panelPath(); c.strokeStyle = "rgba(" + A + ",0.6)"; c.lineWidth = 3; c.stroke(); c.restore();
+    // shards above the torn edge
+    c.fillStyle = "rgba(" + A + ",0.8)"; c.shadowColor = ACC; c.shadowBlur = 14;
+    [[[px + 470, py - 4], [px + 500, py - 52], [px + 520, py - 4]], [[px + 880, py - 4], [px + 905, py - 62], [px + 925, py - 4]], [[px + 430, py - 100], [px + 456, py - 124], [px + 462, py - 86]], [[px + 935, py - 150], [px + 965, py - 172], [px + 958, py - 130]]]
+      .forEach(function (tri) { c.beginPath(); c.moveTo(tri[0][0], tri[0][1]); c.lineTo(tri[1][0], tri[1][1]); c.lineTo(tri[2][0], tri[2][1]); c.closePath(); c.fill(); });
+    c.beginPath(); c.moveTo(px + 535, py - 4); c.lineTo(px + 565, py - 92); c.lineTo(px + 600, py - 40); c.lineTo(px + 625, py - 4); c.closePath();
+    c.fillStyle = "#1c1c1f"; c.fill(); c.strokeStyle = "rgba(" + A + ",0.9)"; c.lineWidth = 3; c.stroke(); c.shadowBlur = 0;
+    // player art breaking out of the top of the panel
+    if (art) {
+      const ah = 540, aw = art.width * ah / art.height, ax = px + pw - aw + 10, ay = py + ph - ah;
+      const off = document.createElement("canvas"); off.width = Math.ceil(aw) + 80; off.height = ah + 80; const o = off.getContext("2d");
+      o.drawImage(art, 40, 40, aw, ah);
+      if (spoiler) { o.globalCompositeOperation = "source-in"; o.fillStyle = "#0d0d10"; o.fillRect(0, 0, off.width, off.height); }
+      c.save(); c.shadowColor = "rgba(" + A + ",1)"; c.shadowBlur = spoiler ? 34 : 30; if (spoiler) c.filter = "blur(3px)";
+      c.drawImage(off, ax - 40, ay - 40); c.shadowBlur = 10; c.drawImage(off, ax - 40, ay - 40); c.shadowBlur = 0; c.drawImage(off, ax - 40, ay - 40); c.restore();
+      if (spoiler) { c.font = "700 150px " + D; c.textAlign = "center"; c.fillStyle = ACC; c.shadowColor = ACC; c.shadowBlur = 30; c.fillText("?", ax + aw / 2, ay + ah * .48); c.shadowBlur = 0; c.textAlign = "left"; }
+      c.font = "600 17px " + B; const lbl = "PLACEHOLDER ART · NOT A REAL PLAYER"; const lw = c.measureText(lbl).width + 20;
+      rrect(c, px + pw - lw - 16, py + ph - 42, lw, 30, 6); c.fillStyle = "rgba(0,0,0,0.6)"; c.fill(); c.fillStyle = "rgba(255,255,255,0.6)"; c.fillText(lbl, px + pw - lw - 6, py + ph - 21);
+    }
+    // name + meta
+    c.fillStyle = "#fff"; c.font = "700 104px " + D;
+    const name = spoiler ? "CAN YOU NAME HIM?" : p.name.toUpperCase();
+    let fs = 104; while (c.measureText(name).width > 960 && fs > 60) { fs -= 4; c.font = "700 " + fs + "px " + D; }
+    c.fillText(name, 60, 790);
+    c.font = "500 36px " + B; c.fillStyle = "#B4B4B4";
+    let mx = 60;
+    if (!spoiler && crest) { c.save(); c.shadowColor = "rgba(255,255,255,0.9)"; c.shadowBlur = 4; c.drawImage(crest, 60, 815, 48, 48); c.restore(); mx = 122; }
+    const modeName = { unlimited: "Unlimited", passplay: "Pass & Play", speed: "Speed Round", hard: "Hard" }[g.mode] || "Practice";
+    c.fillText(spoiler ? ((col ? "College" : "NFL") + (g.mode === "daily" ? " daily puzzle · same player for everyone today" : " " + modeName + " · can you name him faster?")) : (t.city + " · " + p.pos), mx, 852);
+    // key stat chips
+    const st = getStats(g.tier);
+    const tStr = fmtElapsed(gameElapsedMs(g));
+    const chips = spoiler
+      ? (g.mode === "daily"
+        ? [["Guesses", (g.status === "won" ? g.guesses.length : "X") + " / " + g.max], ["Streak", String(st.streak)], ["Best", String(st.maxStreak)]]
+        : [["Guesses", (g.status === "won" ? g.guesses.length : "X") + " / " + g.max], ["Time", tStr || "—"], ["Mode", modeName]])
+      : (col ? [["Conference", t.conf || "—"], ["Class", p.cls ? CLASS_LABELS[p.cls] : "—"], ["Height / Wt", fmtHt(p.ht) + " · " + p.wt + " lb"]]
+             : [["College", p.college || "—"], ["Draft", p.udfa ? "UDFA" : (p.dy + " · Rd " + p.dr)], ["Height / Wt", fmtHt(p.ht) + " · " + p.wt + " lb"]]);
+    const cw = (960 - 2 * 20) / 3;
+    chips.forEach(function (ch, i) {
+      const x = 60 + i * (cw + 20); rrect(c, x, 890, cw, 110, 20); c.fillStyle = "#141416"; c.fill(); c.strokeStyle = "rgba(255,255,255,0.08)"; c.lineWidth = 2; c.stroke();
+      c.font = "650 21px " + B; c.fillStyle = "#7A7A7A"; c.fillText(ch[0].toUpperCase(), x + 24, 932);
+      let vf = 38; c.font = "700 " + vf + "px " + B; while (c.measureText(ch[1]).width > cw - 44 && vf > 22) { vf -= 2; c.font = "700 " + vf + "px " + B; }
+      c.fillStyle = "#fff"; c.fillText(ch[1], x + 24, 980);
     });
-    const s = getStats(g.tier);
-    c.fillStyle = "#B4B4B4";
-    c.font = "600 28px sans-serif";
-    c.fillText(g.mode === "daily" ? ("Streak " + s.streak + "  ·  Best " + s.maxStreak) : "Practice game", 540, y + 70);
-    c.fillStyle = "#7A7A7A";
-    c.font = "500 22px sans-serif";
-    c.fillText("Not affiliated with any professional league or teams", 540, 1280);
+    // solved line + grid
+    const won = g.status === "won", score = g.guesses.length + "/" + g.max;
+    c.font = "700 24px " + B; c.fillStyle = ACC;
+    c.fillText((won ? "SOLVED IN " + score : "OUT OF GUESSES · " + score) + (tStr ? "  ·  " + tStr : ""), 60, 1072);
+    c.font = "700 150px " + D; c.fillStyle = ACC; c.shadowColor = "rgba(" + A + ",0.5)"; c.shadowBlur = 30;
+    const big = (won ? g.guesses.length : "X") + "/" + g.max;
+    c.fillText(big, 54, 1210); c.shadowBlur = 0;
+    const bigW = c.measureText(big).width;
+    const rows = g.grades, cols = rows[0] ? rows[0].length : 9, gap = 10, gx0 = 400, gw = 620, gy0 = 1040, gh = 190;
+    const sz = Math.floor(Math.min(58, (gw - (cols - 1) * gap) / cols, (gh - (rows.length - 1) * gap) / rows.length));
+    const gwid = cols * sz + (cols - 1) * gap, ghei = rows.length * sz + (rows.length - 1) * gap;
+    const gx = gx0 + gw - gwid, gy = gy0 + (gh - ghei) / 2;
+    const cs = getComputedStyle(document.documentElement);
+    const colors = { exact: cs.getPropertyValue("--exact").trim() || "#159A55", close: cs.getPropertyValue("--close").trim() || "#E0A800", miss: "#2C2C30" };
+    rows.forEach(function (row, r) { row.forEach(function (tl, i) { rrect(c, gx + i * (sz + gap), gy + r * (sz + gap), sz, sz, Math.round(sz * .2)); c.fillStyle = colors[tl.grade]; c.fill(); }); });
+    if (tStr) {
+      const tx = 54 + bigW + 22, room = gx - 24 - tx;
+      let tf = 64; c.font = "700 " + tf + "px " + D; while (c.measureText(tStr).width > room && tf > 30) { tf -= 4; c.font = "700 " + tf + "px " + D; }
+      c.font = "700 20px " + B; c.fillStyle = "rgba(255,255,255,0.55)"; c.fillText("TIME", tx + 2, 1210 - tf - 8);
+      c.font = "700 " + tf + "px " + D; c.fillStyle = "#fff"; c.fillText(tStr, tx, 1206);
+    }
+    // footer
+    c.fillStyle = "rgba(255,255,255,0.08)"; c.fillRect(60, 1250, 960, 2);
+    c.font = "700 29px " + B; c.fillStyle = "#fff"; c.textAlign = "left"; c.fillText("Play free:", 60, 1298);
+    const pl = c.measureText("Play free: ").width; c.fillStyle = ACC; c.fillText("https://vrilsolutions00.github.io/snap-count/", 60 + pl, 1298);
+    c.font = "500 18px " + B; c.fillStyle = "#5A5A5C"; c.fillText("Not affiliated with any league, team or school · Player art is a placeholder", 60, 1332);
+    c.textAlign = "left";
+    return cv;
+  }
+  async function shareImage(full) {
+    const g = state.game;
+    // Default share is ALWAYS the spoiler-safe card. The full reveal card is opt-in and never offered for Daily.
+    const spoiler = !(full && g.mode !== "daily");
+    const canvas = await renderShareCanvas(g, { spoiler: spoiler });
     const blob = await new Promise(function (res) { canvas.toBlob(res, "image/png"); });
     const file = new File([blob], "snap-count.png", { type: "image/png" });
+    const text = shareHeadline(g) + "\n" + emojiGrid(g) + "\nhttps://vrilsolutions00.github.io/snap-count/";
     try {
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: "Snap Count" });
+        await navigator.share({ files: [file], title: "Snap Count", text: text });
         return;
       }
-    } catch (e) {}
+    } catch (e) { if (e && e.name === "AbortError") return; }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = "snap-count.png";
-    a.click();
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = "snap-count.png"; a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     toast("Image saved");
   }
 

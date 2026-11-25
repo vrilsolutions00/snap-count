@@ -1,4 +1,4 @@
-const CACHE = "sc-v19";
+const CACHE = "sc-v20";
 const SHELL = [
   "./",
   "./index.html",
@@ -15,7 +15,12 @@ const SHELL = [
   "./fonts/oswald-latin.woff2",
   "./fonts/oswald-latin-ext.woff2",
   "./fonts/outfit-latin.woff2",
-  "./fonts/outfit-latin-ext.woff2"
+  "./fonts/outfit-latin-ext.woff2",
+  "./art/poses/reach.png",
+  "./art/poses/run.png",
+  "./art/poses/throw.png",
+  "./art/poses/stance.png",
+  "./art/poses/celebrate.png"
 ];
 /* Team logos in ./logos/ are cached on first use by the fetch handler, not listed here. */
 
