@@ -1821,7 +1821,8 @@
     const sw = c.measureText("SNAP ").width; c.fillStyle = ACC; c.fillText("COUNT", 60 + sw, 118);
     c.font = "700 24px " + B; c.fillStyle = "rgba(255,255,255,0.6)";
     const kick = shareHeadline(g).replace("Snap Count · ", "").replace(/ [0-9X]+\/[0-9]+$/, "").toUpperCase();
-    c.fillText((col ? "" : "NFL  ·  ") + kick + "  ·  DAILY PLAYER PUZZLE", 62, 162);
+    const modeHead = { unlimited: "UNLIMITED PLAYER PUZZLE", speed: "SPEED ROUND", passplay: "PASS & PLAY" }[g.mode] || "DAILY PLAYER PUZZLE";
+    c.fillText((col ? "" : "NFL  ·  ") + kick + "  ·  " + modeHead, 62, 162);
     // hero panel with torn top edge
     const px = 60, py = 270, pw = 960, ph = 400;
     const torn = [[0,0],[.46,0],[.49,.06],[.53,.015],[.57,.08],[.61,.025],[.66,.09],[.72,.02],[.78,.075],[.84,.015],[.9,.06],[.94,0],[1,0]];
