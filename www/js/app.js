@@ -1819,10 +1819,6 @@
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     c.font = "700 76px " + D; c.fillStyle = "#fff"; c.fillText("SNAP", 60, 118);
     const sw = c.measureText("SNAP ").width; c.fillStyle = ACC; c.fillText("COUNT", 60 + sw, 118);
-    c.font = "700 24px " + B; c.fillStyle = "rgba(255,255,255,0.6)";
-    const kick = shareHeadline(g).replace("Snap Count · ", "").replace(/ [0-9X]+\/[0-9]+$/, "").toUpperCase();
-    const modeHead = { unlimited: "UNLIMITED PLAYER PUZZLE", speed: "SPEED ROUND", passplay: "PASS & PLAY" }[g.mode] || "DAILY PLAYER PUZZLE";
-    c.fillText((col ? "" : "NFL  ·  ") + kick + "  ·  " + modeHead, 62, 162);
     // hero panel with torn top edge
     const px = 60, py = 270, pw = 960, ph = 400;
     const torn = [[0,0],[.46,0],[.49,.06],[.53,.015],[.57,.08],[.61,.025],[.66,.09],[.72,.02],[.78,.075],[.84,.015],[.9,.06],[.94,0],[1,0]];
@@ -1876,6 +1872,12 @@
       c.font = "600 17px " + B; const lbl = "PLACEHOLDER ART · NOT A REAL PLAYER"; const lw = c.measureText(lbl).width + 20;
       rrect(c, px + pw - lw - 16, py + ph - 42, lw, 30, 6); c.fillStyle = "rgba(0,0,0,0.6)"; c.fill(); c.fillStyle = "rgba(255,255,255,0.6)"; c.fillText(lbl, px + pw - lw - 6, py + ph - 21);
     }
+    // header line, drawn after the art so it sits on top of the silhouette
+    c.textAlign = "left"; c.shadowBlur = 0; c.filter = "none";
+    c.font = "700 24px " + B; c.fillStyle = "rgba(255,255,255,0.6)";
+    const kick = shareHeadline(g).replace("Snap Count · ", "").replace(/ [0-9X]+\/[0-9]+$/, "").toUpperCase();
+    const modeHead = { unlimited: "UNLIMITED PLAYER PUZZLE", speed: "SPEED ROUND", passplay: "PASS & PLAY" }[g.mode] || "DAILY PLAYER PUZZLE";
+    c.fillText((col ? "" : "NFL  ·  ") + kick + "  ·  " + modeHead, 62, 162);
     // name + meta
     c.fillStyle = "#fff"; c.font = "700 104px " + D;
     const name = spoiler ? "CAN YOU NAME HIM?" : p.name.toUpperCase();
@@ -1892,10 +1894,10 @@
     const chips = spoiler
       ? (g.mode === "daily"
         ? [["Guesses", (g.status === "won" ? g.guesses.length : "X") + " / " + g.max], ["Streak", String(st.streak)], ["Best", String(st.maxStreak)]]
-        : [["Guesses", (g.status === "won" ? g.guesses.length : "X") + " / " + g.max], ["Time", tStr || "—"], ["Mode", modeName]])
+        : [["Guesses", (g.status === "won" ? g.guesses.length : "X") + " / " + g.max], ["Mode", modeName]])
       : (col ? [["Conference", t.conf || "—"], ["Class", p.cls ? CLASS_LABELS[p.cls] : "—"], ["Height / Wt", fmtHt(p.ht) + " · " + p.wt + " lb"]]
              : [["College", p.college || "—"], ["Draft", p.udfa ? "UDFA" : (p.dy + " · Rd " + p.dr)], ["Height / Wt", fmtHt(p.ht) + " · " + p.wt + " lb"]]);
-    const cw = (960 - 2 * 20) / 3;
+    const cw = (960 - (chips.length - 1) * 20) / chips.length;
     chips.forEach(function (ch, i) {
       const x = 60 + i * (cw + 20); rrect(c, x, 890, cw, 110, 20); c.fillStyle = "#141416"; c.fill(); c.strokeStyle = "rgba(255,255,255,0.08)"; c.lineWidth = 2; c.stroke();
       c.font = "650 21px " + B; c.fillStyle = "#7A7A7A"; c.fillText(ch[0].toUpperCase(), x + 24, 932);
@@ -1905,7 +1907,7 @@
     // solved line + grid
     const won = g.status === "won", score = g.guesses.length + "/" + g.max;
     c.font = "700 24px " + B; c.fillStyle = ACC;
-    c.fillText((won ? "SOLVED IN " + score : "OUT OF GUESSES · " + score) + (tStr ? "  ·  " + tStr : ""), 60, 1072);
+    c.fillText(won ? "SOLVED IN " + score : "OUT OF GUESSES · " + score, 60, 1072);
     c.font = "700 150px " + D; c.fillStyle = ACC; c.shadowColor = "rgba(" + A + ",0.5)"; c.shadowBlur = 30;
     const big = (won ? g.guesses.length : "X") + "/" + g.max;
     c.fillText(big, 54, 1210); c.shadowBlur = 0;
